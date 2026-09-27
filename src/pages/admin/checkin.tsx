@@ -354,17 +354,7 @@ function Scanner({ onCode }: { onCode: (code: string) => void }) {
         const source = chosen ? chosen.id : { facingMode: "environment" };
         await scanner.start(
           source,
-          {
-            fps: 20,
-            qrbox: (w: number, h: number) => ({ width: Math.floor(w * 0.94), height: Math.floor(Math.min(h * 0.42, 220)) }),
-            aspectRatio: 4 / 3,
-            videoConstraints: {
-              ...(typeof source === "string" ? { deviceId: { exact: source } } : { facingMode: "environment" }),
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
-              focusMode: "continuous",
-            } as unknown as MediaTrackConstraints,
-          },
+          { fps: 12, qrbox: (w: number, h: number) => ({ width: Math.floor(Math.min(w, h * 1.6) * 0.85), height: Math.floor(Math.min(h, w) * 0.6) }), aspectRatio: 4 / 3 },
           (text: string) => onCodeRef.current(text),
           () => {},
         );
