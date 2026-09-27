@@ -37,8 +37,18 @@ Production: `npm run build && npm start`.
 | `DATABASE_URL` | yes | Postgres connection string (on Railway: reference the Postgres service's `DATABASE_URL`). |
 | `NODE_ENV` | recommended | Set to `production` so admin cookies are `Secure`. |
 | `CLUB_TIMEZONE` | no | Defaults to `Europe/Prague`; used for "today" and the 7-day retention. |
-| `PORT` | no | Provided by Railway. |
+| `PORT` | no | Provided by the host. |
+| `SITE_URL` | no | Canonical address, defaults to `https://friends-club.cz`. Used for canonical links, sitemap and redirects. |
+| `GOOGLE_SITE_VERIFICATION` | no | Token from Google Search Console's "HTML tag" method, if you verify that way. |
 
 ## Deploy (Railway)
 
 `railway.json` builds with `npm run build`, starts with `npm start` and health-checks `/api/health`. Add a Postgres database to the project, set `DATABASE_URL` and `NODE_ENV=production` on the app service, and generate a domain. The camera scanner needs HTTPS, which Railway domains provide.
+
+## SEO
+
+- `server/seo.js` renders each page's `<title>`, description, canonical link, Open Graph/Twitter tags and robots rules on the server.
+- The homepage also gets crawlable HTML (upcoming sessions, how it works, FAQ) and JSON-LD for the club, the FAQ and each upcoming session (`SportsEvent`).
+- `/robots.txt` and `/sitemap.xml` are generated. Admin pages and My sessions are `noindex`; unknown URLs return a real 404.
+- In production, `www.friends-club.cz` and the `*.onrender.com` address redirect (301) to `https://friends-club.cz`.
+- FAQ and "How it works" text live in `shared/site.json`, used by both the app and the server.

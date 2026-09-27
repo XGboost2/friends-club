@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowDownRight, ArrowRight, CalendarDays, MapPin, Sparkles } from "lucide-react";
+import { AboutSection } from "@/components/about-section";
 import { MonthCalendar } from "@/components/month-calendar";
 import { SessionCard } from "@/components/session-card";
 import { JoinSheet } from "@/components/join-sheet";
@@ -76,7 +77,7 @@ export default function Home() {
         <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.18 }} className="mt-6 flex flex-col gap-6 sm:mt-9 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="max-w-md text-base leading-relaxed text-muted-foreground sm:text-lg">
-              Pick a highlighted date, vote for your spot, bring your friends.
+              Friendly badminton in Prague for all levels. Pick a highlighted date, vote for your spot, bring your friends.
             </p>
             <a href="#calendar" className="group mt-5 hidden items-center gap-3 font-display text-sm font-bold text-primary transition hover:gap-5 sm:inline-flex">
               Explore sessions
@@ -184,6 +185,8 @@ export default function Home() {
           </div>
         )}
       </section>
+
+      <AboutSection />
 
       <JoinSheet
         session={joining}

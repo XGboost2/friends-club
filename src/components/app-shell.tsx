@@ -1,7 +1,8 @@
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { CalendarDays, ChevronRight, ClipboardList, History, ScanLine, Ticket, House, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import site from "../../shared/site.json";
 import { AmbientBackground, ShuttleLogo } from "./brand";
 import { cn } from "@/lib/utils";
 import { useAdmin } from "@/lib/admin";
@@ -10,6 +11,15 @@ const playerLinks = [
   { to: "/", label: "Calendar", icon: CalendarDays, end: true },
   { to: "/my-sessions", label: "My sessions", icon: Ticket, end: false },
 ];
+const titles: Record<string, string> = {
+  "/": site.title,
+  "/my-sessions": "My sessions — Friends Club",
+  "/admin/login": "Admin — Friends Club",
+  "/admin/polls": "Polls — Friends Club admin",
+  "/admin/checkin": "Check-in — Friends Club admin",
+  "/admin/records": "Records — Friends Club admin",
+};
+
 const adminLinks = [
   { to: "/admin/polls", label: "Polls", icon: ClipboardList, end: false },
   { to: "/admin/checkin", label: "Check-in", icon: ScanLine, end: false },
@@ -18,6 +28,9 @@ const adminLinks = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
+  useEffect(() => {
+    document.title = titles[pathname] ?? site.title;
+  }, [pathname]);
   const admin = pathname.startsWith("/admin");
   const { admin: me, logout } = useAdmin();
   const signedIn = admin && me?.approved;

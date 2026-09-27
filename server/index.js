@@ -8,6 +8,7 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { CLUB_TZ, query, tx, migrate, cleanupOldRecords } from "./db.js";
+import { renderPage, robotsTxt, sitemapXml, canonicalHostRedirect } from "./seo.js";
 
 const app = new Hono();
 const isProd = process.env.NODE_ENV === "production";
@@ -490,12 +491,24 @@ app.onError((err, c) => {
   return bad(c, "Something went wrong on our side. Please try again.", 500);
 });
 
-// ---------- static frontend ----------
+// ---------- SEO + static frontend ----------
+app.use("*", async (c, next) => canonicalHostRedirect(c) ?? next());
+app.get("/robots.txt", (c) => c.text(robotsTxt(), 200, { "Cache-Control": "public, max-age=3600" }));
+app.get("/sitemap.xml", async (c) => c.body(await sitemapXml(), 200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" }));
+
 if (existsSync("./dist/index.html")) {
+  const template = await readFile("./dist/index.html", "utf8");
   app.use("/assets/*", serveStatic({ root: "./dist", onFound: (_p, c) => c.header("Cache-Control", "public, max-age=31536000, immutable") }));
-  app.use("*", serveStatic({ root: "./dist" }));
-  const indexHtml = await readFile("./dist/index.html", "utf8");
-  app.get("*", (c) => c.html(indexHtml));
+  // Files with an extension (icons, images, manifest) come straight from dist/.
+  app.use("*", async (c, next) => (/\.[a-z0-9]+$/i.test(c.req.path) && c.req.path !== "/index.html" ? serveStatic({ root: "./dist", onFound: (_p, cc) => cc.header("Cache-Control", "public, max-age=86400") })(c, next) : next()));
+  // Every page route gets server-rendered <head> tags (and crawlable content on the homepage).
+  app.get("*", async (c) => {
+    if (c.req.path.startsWith("/api/")) return bad(c, "Not found", 404);
+    const { html, status, index } = await renderPage(template, c.req.path);
+    c.header("Cache-Control", "no-cache");
+    if (!index) c.header("X-Robots-Tag", "noindex, nofollow");
+    return c.html(html, status);
+  });
 }
 
 // ---------- boot ----------

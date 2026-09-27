@@ -14,3 +14,7 @@ services:
         value: Europe/Prague
       - key: DATABASE_URL
         sync: false
+      - key: SITE_URL
+        value: https://friends-club.cz
+      - key: GOOGLE_SITE_VERIFICATION
+        sync: false
