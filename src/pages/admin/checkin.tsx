@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Eyebrow, Spinner } from "@/components/ui/field";
 import { api, type Session, type SessionDetail } from "@/lib/api";
+import { useConfirm } from "@/components/confirm-dialog";
 import { cn, fmt, maskCard } from "@/lib/utils";
 
 type ScanResult = { result: "paid" | "already" | "unknown"; name?: string; code?: string; at: number };
@@ -38,6 +39,7 @@ export default function AdminCheckin() {
   const lastCode = useRef<{ code: string; at: number } | null>(null);
   const busy = useRef(false);
   const stageRef = useRef<HTMLDivElement>(null);
+  const { ask, dialog: confirmDialog } = useConfirm();
 
   useEffect(() => {
     api<{ today: string; sessions: Session[] }>("/api/admin/checkin/sessions")
@@ -96,7 +98,15 @@ export default function AdminCheckin() {
   }, [last]);
 
   async function mark(kind: "registrations" | "guests", id: number, status: "paid" | "pending") {
-    if (status === "pending" && !window.confirm("Mark this row back to pending?")) return;
+    if (status === "pending") {
+      const ok = await ask({
+        title: "Undo check-in?",
+        message: "This will move the row back to pending. You can mark it paid again anytime.",
+        confirmLabel: "Move to pending",
+        tone: "warning",
+      });
+      if (!ok) return;
+    }
     try {
       await api(`/api/admin/${kind}/${id}`, { method: "PATCH", body: { status } });
       loadDetail();
@@ -107,7 +117,13 @@ export default function AdminCheckin() {
 
   async function remove(kind: "registrations" | "guests", id: number, name: string) {
     const label = kind === "guests" ? `${name} (guest)` : name;
-    if (!window.confirm(`Remove ${label} from this session? This can't be undone.`)) return;
+    const ok = await ask({
+      title: `Remove ${label}?`,
+      message: "They'll be dropped from this session. This can't be undone.",
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       await api(`/api/admin/${kind}/${id}`, { method: "DELETE" });
       toast.success(`Removed ${label}.`);
@@ -164,7 +180,7 @@ export default function AdminCheckin() {
       )}
 
       {selected && (
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div ref={stageRef} className="glass-panel relative overflow-hidden rounded-3xl p-4 sm:p-6 [&:fullscreen]:rounded-none [&:fullscreen]:bg-background [&:fullscreen]:p-8">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="min-w-0 flex-1">
@@ -247,6 +263,7 @@ export default function AdminCheckin() {
           </div>
         </div>
       )}
+      {confirmDialog}
     </div>
   );
 }

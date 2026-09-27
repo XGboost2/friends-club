@@ -7,6 +7,7 @@ import { Eyebrow, Field, Spinner } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { MonthCalendar } from "@/components/month-calendar";
 import { api, type Admin, type Session, type SessionDetail } from "@/lib/api";
+import { useConfirm } from "@/components/confirm-dialog";
 import { cn, fmt, isoDay, maskCard } from "@/lib/utils";
 
 const VENUES_KEY = "friends-club.venues";
@@ -356,6 +357,7 @@ function PollForm({ open, onClose, session, venues, onSaved }: { open: boolean; 
 
 function PollDetail({ session, onClose, onChanged }: { session: Session | null; onClose: () => void; onChanged: () => void }) {
   const [detail, setDetail] = useState<SessionDetail | null>(null);
+  const { ask, dialog: confirmDialog } = useConfirm();
   const load = useCallback(async () => {
     if (!session) return;
     const res = await api<{ session: SessionDetail }>(`/api/admin/sessions/${session.id}`);
@@ -367,7 +369,13 @@ function PollDetail({ session, onClose, onChanged }: { session: Session | null; 
   }, [load]);
 
   async function removePlayer(id: number, name: string) {
-    if (!window.confirm(`Remove ${name} (and their guests) from this session?`)) return;
+    const ok = await ask({
+      title: `Remove ${name}?`,
+      message: "Their guests will be removed too. This can't be undone.",
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!ok) return;
     await api(`/api/admin/registrations/${id}`, { method: "DELETE" });
     toast.success(`${name} removed.`);
     load();
@@ -413,6 +421,7 @@ function PollDetail({ session, onClose, onChanged }: { session: Session | null; 
           </div>
         ))}
       </div>
+      {confirmDialog}
     </Sheet>
   );
 }

@@ -47,7 +47,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         )}
       </header>
-      <motion.main key={pathname} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="relative z-10 flex-1">
+      <motion.main key={pathname} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className={cn("relative z-10 flex-1", links.length ? "pb-24 md:pb-0" : "")}>
         {children}
       </motion.main>
       <footer className={cn("relative z-10 mx-auto flex w-full max-w-7xl items-center justify-between border-t border-border px-4 py-8 text-xs text-muted-foreground sm:px-8 md:pb-8 lg:px-12", links.length ? "pb-32" : "pb-8")}>

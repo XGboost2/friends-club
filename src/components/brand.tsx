@@ -34,6 +34,7 @@ export function AmbientBackground() {
       <div className="aurora aurora-violet" />
       <div className="court-grid" />
       <div className="court-lines" />
+      <div className="sport-motif" />
     </div>
   );
 }
