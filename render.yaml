@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: friends-club
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLUB_TIMEZONE
+        value: Europe/Prague
+      - key: DATABASE_URL
+        sync: false
