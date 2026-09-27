@@ -41,9 +41,9 @@ export default function AdminRecords() {
       <div className="mb-8">
         <Eyebrow>The clubhouse / Records</Eyebrow>
         <h1 className="font-display text-4xl font-bold leading-[1.05] sm:text-6xl">
-          The last seven days<span className="text-primary">.</span>
+          The last two weeks<span className="text-primary">.</span>
         </h1>
-        <p className="mt-3 max-w-xl text-muted-foreground">Every session from the past week, who came and who paid. Older records — including card numbers — are deleted automatically.</p>
+        <p className="mt-3 max-w-xl text-muted-foreground">Every session from the past fortnight, who came and who paid. Older records — including card numbers — are deleted automatically.</p>
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -81,7 +81,7 @@ export default function AdminRecords() {
           <Spinner className="size-6" />
         </div>
       )}
-      {sessions?.length === 0 && <div className="glass-panel rounded-2xl p-10 text-center text-muted-foreground">No sessions in the last seven days.</div>}
+      {sessions?.length === 0 && <div className="glass-panel rounded-2xl p-10 text-center text-muted-foreground">No sessions in the last two weeks.</div>}
 
       <div className="space-y-3">
         {sessions?.map((s) => {

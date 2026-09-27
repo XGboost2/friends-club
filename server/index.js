@@ -452,10 +452,10 @@ app.delete("/api/admin/guests/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-// ---------- admin: records (last 7 days) ----------
+// ---------- admin: records (last 14 days) ----------
 app.get("/api/admin/records", async (c) => {
   await cleanupOldRecords();
-  const { rows } = await query(`SELECT id FROM sessions WHERE date BETWEEN current_date - 7 AND current_date ORDER BY date DESC, start_time DESC`);
+  const { rows } = await query(`SELECT id FROM sessions WHERE date BETWEEN current_date - 14 AND current_date ORDER BY date DESC, start_time DESC`);
   const sessions = [];
   for (const row of rows) sessions.push(await sessionDetail(row.id));
   return c.json({ sessions });

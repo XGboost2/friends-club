@@ -96,6 +96,7 @@ export default function AdminCheckin() {
   }, [last]);
 
   async function mark(kind: "registrations" | "guests", id: number, status: "paid" | "pending") {
+    if (status === "pending" && !window.confirm("Mark this row back to pending?")) return;
     try {
       await api(`/api/admin/${kind}/${id}`, { method: "PATCH", body: { status } });
       loadDetail();
@@ -166,16 +167,16 @@ export default function AdminCheckin() {
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div ref={stageRef} className="glass-panel relative overflow-hidden rounded-3xl p-4 sm:p-6 [&:fullscreen]:rounded-none [&:fullscreen]:bg-background [&:fullscreen]:p-8">
             <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="font-display text-lg font-bold">Scan your Multisport card</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="truncate text-xs text-muted-foreground">
                   {selected.venue} · {selected.startTime}–{selected.endTime}
                 </p>
               </div>
               <Button
                 variant="glass"
                 size="icon"
-                className="size-9"
+                className="size-9 shrink-0"
                 aria-label="Kiosk full screen"
                 onClick={() => {
                   if (document.fullscreenElement) document.exitFullscreen();
@@ -311,22 +312,24 @@ function ResultFlash({ result }: { result: ScanResult }) {
 function Scanner({ onCode }: { onCode: (code: string) => void }) {
   const [state, setState] = useState<"idle" | "starting" | "running" | "error">("idle");
   const [error, setError] = useState("");
-  const [cameras, setCameras] = useState<{ id: string; label: string }[]>([]);
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [camIndex, setCamIndex] = useState(0);
-  const scannerRef = useRef<import("html5-qrcode").Html5Qrcode | null>(null);
+  const controlsRef = useRef<{ stop: () => void } | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const onCodeRef = useRef(onCode);
   onCodeRef.current = onCode;
 
-  const stop = useCallback(async () => {
-    const s = scannerRef.current;
-    scannerRef.current = null;
-    if (s) {
-      try {
-        if (s.isScanning) await s.stop();
-        s.clear();
-      } catch {
-        /* already stopped */
-      }
+  const stop = useCallback(() => {
+    try {
+      controlsRef.current?.stop();
+    } catch {
+      /* already stopped */
+    }
+    controlsRef.current = null;
+    const v = videoRef.current;
+    if (v?.srcObject) {
+      (v.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
+      v.srcObject = null;
     }
     setState("idle");
   }, []);
@@ -336,45 +339,40 @@ function Scanner({ onCode }: { onCode: (code: string) => void }) {
       setState("starting");
       setError("");
       try {
-        const { Html5Qrcode, Html5QrcodeSupportedFormats: F } = await import("html5-qrcode");
-        if (scannerRef.current) await stop();
+        const { BrowserMultiFormatReader } = await import("@zxing/browser");
+        const { DecodeHintType, BarcodeFormat } = await import("@zxing/library");
+        stop();
         let list = cameras;
         if (!list.length) {
-          list = (await Html5Qrcode.getCameras()).map((c) => ({ id: c.id, label: c.label }));
+          list = await BrowserMultiFormatReader.listVideoInputDevices();
           setCameras(list);
         }
-        const scanner = new Html5Qrcode("fc-scanner", {
-          verbose: false,
-          formatsToSupport: [F.QR_CODE, F.CODE_128, F.CODE_39, F.CODE_93, F.EAN_13, F.EAN_8, F.ITF, F.CODABAR, F.UPC_A, F.PDF_417, F.DATA_MATRIX, F.AZTEC],
-          useBarCodeDetectorIfSupported: true,
-        });
-        scannerRef.current = scanner;
         const back = list.findIndex((c) => /back|rear|environment/i.test(c.label));
-        const chosen = list[index] ?? list[back >= 0 ? back : 0];
-        const source = chosen ? chosen.id : { facingMode: "environment" };
-        const isTouch = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
-        const startConfig = isTouch
-          ? {
-              fps: 20,
-              qrbox: (w: number, h: number) => ({ width: Math.floor(w * 0.94), height: Math.floor(Math.min(h * 0.42, 220)) }),
-              aspectRatio: 4 / 3,
-              videoConstraints: {
-                ...(typeof source === "string" ? { deviceId: { exact: source } } : { facingMode: "environment" }),
-                width: { ideal: 1920 },
-                height: { ideal: 1080 },
-                focusMode: "continuous",
-              } as unknown as MediaTrackConstraints,
-            }
-          : { fps: 12, qrbox: (w: number, h: number) => ({ width: Math.floor(Math.min(w, h * 1.6) * 0.85), height: Math.floor(Math.min(h, w) * 0.6) }), aspectRatio: 4 / 3 };
-        await scanner.start(
-          source,
-          startConfig,
-          (text: string) => onCodeRef.current(text),
-          () => {},
-        );
+        const chosen = list[index] ?? list[back >= 0 ? back : 0] ?? list[0];
+        const hints = new Map();
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+          BarcodeFormat.QR_CODE,
+          BarcodeFormat.CODE_128,
+          BarcodeFormat.CODE_39,
+          BarcodeFormat.CODE_93,
+          BarcodeFormat.EAN_13,
+          BarcodeFormat.EAN_8,
+          BarcodeFormat.ITF,
+          BarcodeFormat.CODABAR,
+          BarcodeFormat.UPC_A,
+          BarcodeFormat.PDF_417,
+          BarcodeFormat.DATA_MATRIX,
+          BarcodeFormat.AZTEC,
+        ]);
+        hints.set(DecodeHintType.TRY_HARDER, true);
+        const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 80 });
+        if (!videoRef.current) throw new Error("Video element not mounted.");
+        const controls = await reader.decodeFromVideoDevice(chosen?.deviceId, videoRef.current, (result) => {
+          if (result) onCodeRef.current(result.getText());
+        });
+        controlsRef.current = controls;
         setState("running");
       } catch (e) {
-        scannerRef.current = null;
         setState("error");
         const msg = e instanceof Error ? e.message : String(e);
         setError(/permission|notallowed/i.test(msg) ? "Camera access was blocked. Allow the camera in your browser settings and try again." : /secure|https/i.test(msg) ? "The camera only works over HTTPS." : "Couldn't start the camera. Is another app using it?");
@@ -383,11 +381,11 @@ function Scanner({ onCode }: { onCode: (code: string) => void }) {
     [cameras, camIndex, stop],
   );
 
-  useEffect(() => () => void stop(), [stop]);
+  useEffect(() => () => stop(), [stop]);
 
   return (
     <div className="scan-frame relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-border bg-black/50">
-      <div id="fc-scanner" className="absolute inset-0" />
+      <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" playsInline muted />
       {state === "running" && (
         <>
           <div className="scan-line" />

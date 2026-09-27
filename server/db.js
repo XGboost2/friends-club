@@ -11,7 +11,7 @@ if (!connectionString) {
 
 const useSsl = /sslmode=require/.test(connectionString) || process.env.PGSSL === "true";
 
-// All date logic (today, 7-day retention) runs in the club's local time zone.
+// All date logic (today, 14-day retention) runs in the club's local time zone.
 export const CLUB_TZ = (process.env.CLUB_TIMEZONE || "Europe/Prague").replace(/[^A-Za-z0-9_/+-]/g, "");
 
 export const pool = new pg.Pool({
@@ -98,10 +98,10 @@ export async function migrate() {
   `);
 }
 
-/** Keep one week of history: drop sessions (and their players, guests, card numbers) older than 7 days. */
+/** Keep two weeks of history: drop sessions (and their players, guests, card numbers) older than 14 days. */
 export async function cleanupOldRecords() {
-  const { rowCount } = await query(`DELETE FROM sessions WHERE date < current_date - 7`);
+  const { rowCount } = await query(`DELETE FROM sessions WHERE date < current_date - 14`);
   await query(`DELETE FROM admin_sessions WHERE expires_at < now()`);
-  if (rowCount) console.log(`Retention: removed ${rowCount} session(s) older than 7 days`);
+  if (rowCount) console.log(`Retention: removed ${rowCount} session(s) older than 14 days`);
   return rowCount;
 }
