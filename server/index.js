@@ -7,12 +7,13 @@ import { existsSync } from "node:fs";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { query, tx, migrate, cleanupOldRecords } from "./db.js";
+import { CLUB_TZ, query, tx, migrate, cleanupOldRecords } from "./db.js";
 
 const app = new Hono();
 const isProd = process.env.NODE_ENV === "production";
 const COOKIE = "fc_admin";
 const SESSION_DAYS = 30;
+const CANCEL_LOCK_HOURS = 25;
 
 // ---------- helpers ----------
 const cardKey = (value) => (value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -54,6 +55,7 @@ function mapSession(row) {
 
 const SESSION_STATS_SQL = `
   SELECT s.*,
+    ((s.date::text || ' ' || s.start_time)::timestamp AT TIME ZONE '${CLUB_TZ}') AS start_at,
     (SELECT count(*) FROM registrations r WHERE r.session_id = s.id) AS player_count,
     (SELECT count(*) FROM guests g JOIN registrations r ON r.id = g.registration_id WHERE r.session_id = s.id) AS guest_count,
     COALESCE((SELECT json_agg(r.player_name ORDER BY r.created_at) FROM registrations r WHERE r.session_id = s.id), '[]'::json) AS players
@@ -147,9 +149,15 @@ app.post("/api/sessions/:id/leave", async (c) => {
   const id = Number(c.req.param("id"));
   const { data, error } = await parseBody(c, z.object({ playerId: z.string().min(8).max(64) }));
   if (error) return bad(c, error);
+  const session = (await query(
+    `SELECT ((date::text || ' ' || start_time)::timestamp AT TIME ZONE $1) > now() + interval '${CANCEL_LOCK_HOURS} hours' AS can_leave
+       FROM sessions WHERE id = $2`,
+    [CLUB_TZ, id],
+  )).rows[0];
+  if (!session) return bad(c, "This session no longer exists.", 404);
+  if (!session.can_leave) return bad(c, `Too late to cancel — sessions lock ${CANCEL_LOCK_HOURS} hours before the start time.`, 409);
   const { rowCount } = await query(
-    `DELETE FROM registrations r USING sessions s
-     WHERE r.session_id = s.id AND s.id = $1 AND r.player_id = $2 AND s.date >= current_date`,
+    `DELETE FROM registrations WHERE session_id = $1 AND player_id = $2`,
     [id, data.playerId],
   );
   if (!rowCount) return bad(c, "Booking not found.", 404);
@@ -174,10 +182,23 @@ app.get("/api/my-sessions", async (c) => {
     [playerId || name],
   );
   const bySession = new Map(mine.rows.map((r) => [r.session_id, r]));
+  const cutoffMs = CANCEL_LOCK_HOURS * 3_600_000;
   return c.json({
     sessions: rows.map((row) => {
       const me = bySession.get(row.id);
-      return { ...mapSession(row), me: me ? { multisport: me.uses_multisport, status: me.status, guests: me.guests, canLeave: !!playerId && me.player_id === playerId } : null };
+      if (!me) return { ...mapSession(row), me: null };
+      const isMine = !!playerId && me.player_id === playerId;
+      const beforeCutoff = row.start_at ? new Date(row.start_at).getTime() - Date.now() > cutoffMs : false;
+      return {
+        ...mapSession(row),
+        me: {
+          multisport: me.uses_multisport,
+          status: me.status,
+          guests: me.guests,
+          isMine,
+          canLeave: isMine && beforeCutoff,
+        },
+      };
     }),
   });
 });

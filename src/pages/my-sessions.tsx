@@ -165,9 +165,12 @@ export default function MySessions() {
                     <UserPlus size={14} className="text-cyan" /> Guests: {s.me?.guests.join(", ")}
                   </p>
                 )}
-                {s.me?.canLeave && (
-                  <div className="mt-4 flex justify-end">
-                    <Button variant="ghost" size="sm" onClick={() => setLeaving(s)}>
+                {s.me?.isMine && (
+                  <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+                    {!s.me.canLeave && (
+                      <span className="text-xs text-muted-foreground">Cancellation locks 25h before start</span>
+                    )}
+                    <Button variant="ghost" size="sm" onClick={() => setLeaving(s)} disabled={!s.me.canLeave}>
                       Can't make it? Leave
                     </Button>
                   </div>

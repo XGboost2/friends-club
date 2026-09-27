@@ -14,7 +14,7 @@ export type Session = {
   total: number;
   players: string[];
   multisportCount?: number;
-  me?: { multisport: boolean; status: "pending" | "paid"; guests: string[]; canLeave: boolean } | null;
+  me?: { multisport: boolean; status: "pending" | "paid"; guests: string[]; isMine: boolean; canLeave: boolean } | null;
 };
 
 export type Guest = { id: number; name: string; status: "pending" | "paid" };
