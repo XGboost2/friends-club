@@ -346,7 +346,7 @@ function Scanner({ onCode }: { onCode: (code: string) => void }) {
         const scanner = new Html5Qrcode("fc-scanner", {
           verbose: false,
           formatsToSupport: [F.QR_CODE, F.CODE_128, F.CODE_39, F.CODE_93, F.EAN_13, F.EAN_8, F.ITF, F.CODABAR, F.UPC_A, F.PDF_417, F.DATA_MATRIX, F.AZTEC],
-          useBarCodeDetectorIfSupported: false,
+          useBarCodeDetectorIfSupported: true,
         });
         scannerRef.current = scanner;
         const back = list.findIndex((c) => /back|rear|environment/i.test(c.label));
