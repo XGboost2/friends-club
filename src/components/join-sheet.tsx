@@ -67,7 +67,7 @@ export function JoinSheet({ session, onClose, onJoined }: { session: Session | n
     >
       <form onSubmit={submit} className="space-y-6 pb-4 pt-4">
         <Field label="Your name">
-          <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Kural" autoComplete="name" maxLength={60} required />
+          <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. John Doe" autoComplete="name" maxLength={60} required />
         </Field>
 
         <div className={`rounded-2xl border p-4 transition-colors ${multisport ? "border-primary/35 bg-primary/[.06]" : "border-border bg-soft"}`}>

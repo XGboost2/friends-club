@@ -447,6 +447,11 @@ app.patch("/api/admin/guests/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+app.delete("/api/admin/guests/:id", async (c) => {
+  await query(`DELETE FROM guests WHERE id = $1`, [Number(c.req.param("id"))]);
+  return c.json({ ok: true });
+});
+
 // ---------- admin: records (last 7 days) ----------
 app.get("/api/admin/records", async (c) => {
   await cleanupOldRecords();

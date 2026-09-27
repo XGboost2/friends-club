@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Camera, CameraOff, CheckCircle2, Clock, CreditCard, Expand, Keyboard, RefreshCcw, ScanLine, ShieldAlert, SwitchCamera, UserPlus, Wallet, XCircle } from "lucide-react";
+import { Camera, CameraOff, CheckCircle2, Clock, CreditCard, Expand, Keyboard, RefreshCcw, ScanLine, ShieldAlert, SwitchCamera, Trash2, UserPlus, Wallet, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Eyebrow, Spinner } from "@/components/ui/field";
@@ -101,6 +101,18 @@ export default function AdminCheckin() {
       loadDetail();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't update.");
+    }
+  }
+
+  async function remove(kind: "registrations" | "guests", id: number, name: string) {
+    const label = kind === "guests" ? `${name} (guest)` : name;
+    if (!window.confirm(`Remove ${label} from this session? This can't be undone.`)) return;
+    try {
+      await api(`/api/admin/${kind}/${id}`, { method: "DELETE" });
+      toast.success(`Removed ${label}.`);
+      loadDetail();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't remove.");
     }
   }
 
@@ -220,9 +232,9 @@ export default function AdminCheckin() {
                     <Spinner />
                   </div>
                 )}
-                {detail && tab === "pending" && (pending.length ? pending.map((r) => <Row key={r.id} name={r.name} sub={`${r.holderName ?? ""} · ${maskCard(r.cardNumber)}`} status="pending" icon={<CreditCard size={15} />} onToggle={() => mark("registrations", r.id, "paid")} />) : <Empty text="Everyone with Multisport has scanned in. 🎉" />)}
-                {detail && tab === "paid" && (paid.length ? paid.map((r) => <Row key={r.id} name={r.name} sub={`${r.paidMethod === "scan" ? "Scanned" : "Marked"} ${r.paidAt ? new Date(r.paidAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}`} status="paid" icon={<CreditCard size={15} />} onToggle={() => mark("registrations", r.id, "pending")} />) : <Empty text="No one has checked in yet." />)}
-                {detail && tab === "other" && (others.length ? others.map((o) => <Row key={`${o.kind}-${o.id}`} name={o.name} sub={o.sub} status={o.status} icon={o.kind === "guests" ? <UserPlus size={15} /> : <Wallet size={15} />} onToggle={() => mark(o.kind, o.id, o.status === "paid" ? "pending" : "paid")} />) : <Empty text="No guests or non-Multisport players." />)}
+                {detail && tab === "pending" && (pending.length ? pending.map((r) => <Row key={r.id} name={r.name} sub={`${r.holderName ?? ""} · ${maskCard(r.cardNumber)}`} status="pending" icon={<CreditCard size={15} />} onToggle={() => mark("registrations", r.id, "paid")} onRemove={() => remove("registrations", r.id, r.name)} />) : <Empty text="Everyone with Multisport has scanned in. 🎉" />)}
+                {detail && tab === "paid" && (paid.length ? paid.map((r) => <Row key={r.id} name={r.name} sub={`${r.paidMethod === "scan" ? "Scanned" : "Marked"} ${r.paidAt ? new Date(r.paidAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}`} status="paid" icon={<CreditCard size={15} />} onToggle={() => mark("registrations", r.id, "pending")} onRemove={() => remove("registrations", r.id, r.name)} />) : <Empty text="No one has checked in yet." />)}
+                {detail && tab === "other" && (others.length ? others.map((o) => <Row key={`${o.kind}-${o.id}`} name={o.name} sub={o.sub} status={o.status} icon={o.kind === "guests" ? <UserPlus size={15} /> : <Wallet size={15} />} onToggle={() => mark(o.kind, o.id, o.status === "paid" ? "pending" : "paid")} onRemove={() => remove(o.kind, o.id, o.name)} />) : <Empty text="No guests or non-Multisport players." />)}
               </div>
               <p className="flex items-center justify-between px-3 pb-2 pt-1 text-[11px] text-muted-foreground">
                 <span>Tap a row to mark paid / unpaid by hand.</span>
@@ -252,18 +264,25 @@ function Stat({ label, value, tone, icon }: { label: string; value: number | str
   );
 }
 
-function Row({ name, sub, status, icon, onToggle }: { name: string; sub: string; status: "paid" | "pending"; icon: React.ReactNode; onToggle: () => void }) {
+function Row({ name, sub, status, icon, onToggle, onRemove }: { name: string; sub: string; status: "paid" | "pending"; icon: React.ReactNode; onToggle: () => void; onRemove?: () => void }) {
   return (
-    <motion.button layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} onClick={onToggle} className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-soft px-3 py-2.5 text-left transition hover:border-primary/30">
-      <span className="flex min-w-0 items-center gap-3">
-        <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg", status === "paid" ? "bg-emerald/15 text-emerald" : "bg-amber/15 text-amber")}>{icon}</span>
-        <span className="min-w-0">
-          <span className="block truncate font-medium">{name}</span>
-          <span className="block truncate text-xs text-muted-foreground">{sub}</span>
+    <motion.div layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className="flex w-full items-center gap-2 rounded-xl border border-border bg-soft pr-1.5 transition hover:border-primary/30">
+      <button type="button" onClick={onToggle} className="flex min-w-0 flex-1 items-center justify-between gap-3 px-3 py-2.5 text-left">
+        <span className="flex min-w-0 items-center gap-3">
+          <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg", status === "paid" ? "bg-emerald/15 text-emerald" : "bg-amber/15 text-amber")}>{icon}</span>
+          <span className="min-w-0">
+            <span className="block truncate font-medium">{name}</span>
+            <span className="block truncate text-xs text-muted-foreground">{sub}</span>
+          </span>
         </span>
-      </span>
-      <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider", status === "paid" ? "bg-emerald/15 text-emerald" : "bg-amber/15 text-amber")}>{status}</span>
-    </motion.button>
+        <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider", status === "paid" ? "bg-emerald/15 text-emerald" : "bg-amber/15 text-amber")}>{status}</span>
+      </button>
+      {onRemove && (
+        <button type="button" onClick={onRemove} aria-label={`Remove ${name}`} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive">
+          <Trash2 size={15} />
+        </button>
+      )}
+    </motion.div>
   );
 }
 
