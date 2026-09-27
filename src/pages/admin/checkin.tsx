@@ -329,8 +329,7 @@ function ResultFlash({ result }: { result: ScanResult }) {
 function Scanner({ onCode }: { onCode: (code: string) => void }) {
   const [state, setState] = useState<"idle" | "starting" | "running" | "error">("idle");
   const [error, setError] = useState("");
-  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
-  const [camIndex, setCamIndex] = useState(0);
+  const [facing, setFacing] = useState<"environment" | "user">("environment");
   const controlsRef = useRef<{ stop: () => void } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const onCodeRef = useRef(onCode);
@@ -352,30 +351,34 @@ function Scanner({ onCode }: { onCode: (code: string) => void }) {
   }, []);
 
   const start = useCallback(
-    async (index = camIndex) => {
+    async (nextFacing: "environment" | "user" = facing) => {
       setState("starting");
       setError("");
       try {
         const { BrowserMultiFormatReader } = await import("@zxing/browser");
         const { DecodeHintType, BarcodeFormat } = await import("@zxing/library");
         stop();
-        let list = cameras;
-        if (!list.length) {
-          list = await BrowserMultiFormatReader.listVideoInputDevices();
-          setCameras(list);
-        }
-        const back = list.findIndex((c) => /back|rear|environment/i.test(c.label));
-        const chosen = list[index] ?? list[back >= 0 ? back : 0] ?? list[0];
         const hints = new Map();
         hints.set(DecodeHintType.POSSIBLE_FORMATS, [
           BarcodeFormat.QR_CODE,
           BarcodeFormat.CODE_128,
+          BarcodeFormat.CODE_39,
           BarcodeFormat.EAN_13,
           BarcodeFormat.PDF_417,
+          BarcodeFormat.ITF,
+          BarcodeFormat.DATA_MATRIX,
         ]);
-        const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 40 });
+        hints.set(DecodeHintType.TRY_HARDER, true);
+        const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 50 });
         if (!videoRef.current) throw new Error("Video element not mounted.");
-        const controls = await reader.decodeFromVideoDevice(chosen?.deviceId, videoRef.current, (result) => {
+        const constraints: MediaStreamConstraints = {
+          video: {
+            facingMode: { ideal: nextFacing },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+        };
+        const controls = await reader.decodeFromConstraints(constraints, videoRef.current, (result) => {
           if (result) onCodeRef.current(result.getText());
         });
         controlsRef.current = controls;
@@ -386,7 +389,7 @@ function Scanner({ onCode }: { onCode: (code: string) => void }) {
         setError(/permission|notallowed/i.test(msg) ? "Camera access was blocked. Allow the camera in your browser settings and try again." : /secure|https/i.test(msg) ? "The camera only works over HTTPS." : "Couldn't start the camera. Is another app using it?");
       }
     },
-    [cameras, camIndex, stop],
+    [facing, stop],
   );
 
   useEffect(() => () => stop(), [stop]);
@@ -402,19 +405,17 @@ function Scanner({ onCode }: { onCode: (code: string) => void }) {
           <span className="scan-corner bottom-4 left-4 rounded-bl-xl border-b-4 border-l-4" />
           <span className="scan-corner bottom-4 right-4 rounded-br-xl border-b-4 border-r-4" />
           <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-2">
-            {cameras.length > 1 && (
-              <Button
-                variant="glass"
-                size="sm"
-                onClick={() => {
-                  const next = (camIndex + 1) % cameras.length;
-                  setCamIndex(next);
-                  start(next);
-                }}
-              >
-                <SwitchCamera size={15} /> Switch
-              </Button>
-            )}
+            <Button
+              variant="glass"
+              size="sm"
+              onClick={() => {
+                const next = facing === "environment" ? "user" : "environment";
+                setFacing(next);
+                start(next);
+              }}
+            >
+              <SwitchCamera size={15} /> {facing === "environment" ? "Front" : "Back"}
+            </Button>
             <Button variant="glass" size="sm" onClick={stop}>
               <CameraOff size={15} /> Stop
             </Button>
