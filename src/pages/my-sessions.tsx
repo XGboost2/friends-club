@@ -68,7 +68,7 @@ export default function MySessions() {
       <div className="mb-10 flex flex-wrap items-end justify-between gap-6">
         <div>
           <Eyebrow>Your lineup</Eyebrow>
-          <h1 className="font-display text-5xl font-bold leading-[1.05] sm:text-7xl">
+          <h1 className="font-display text-4xl font-bold leading-[1.05] sm:text-7xl">
             My sessions<span className="text-primary">.</span>
           </h1>
           <p className="mt-4 max-w-xl leading-relaxed text-muted-foreground">

@@ -253,11 +253,11 @@ export default function AdminCheckin() {
 function Stat({ label, value, tone, icon }: { label: string; value: number | string; tone: "emerald" | "amber" | "cyan"; icon: React.ReactNode }) {
   const tones = { emerald: "text-emerald bg-emerald/10 border-emerald/25", amber: "text-amber bg-amber/10 border-amber/25", cyan: "text-cyan bg-cyan/10 border-cyan/25" };
   return (
-    <div className={cn("rounded-2xl border p-3 sm:p-4", tones[tone])}>
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider opacity-90">
+    <div className={cn("rounded-2xl border p-2.5 sm:p-4", tones[tone])}>
+      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider opacity-90 sm:text-[11px]">
         {icon} <span className="truncate">{label}</span>
       </div>
-      <motion.p key={String(value)} initial={{ scale: 1.25, opacity: 0.4 }} animate={{ scale: 1, opacity: 1 }} className="mt-1 font-display text-3xl font-bold text-foreground">
+      <motion.p key={String(value)} initial={{ scale: 1.25, opacity: 0.4 }} animate={{ scale: 1, opacity: 1 }} className="mt-1 font-display text-2xl font-bold text-foreground sm:text-3xl">
         {value}
       </motion.p>
     </div>

@@ -81,7 +81,7 @@ export default function AdminLogin() {
     <div className="mx-auto grid min-h-[72vh] max-w-7xl items-center gap-10 px-4 pb-16 pt-4 sm:px-8 lg:grid-cols-2 lg:px-12">
       <div>
         <Eyebrow>Club operations</Eyebrow>
-        <h1 className="font-display text-5xl font-bold leading-[1.02] sm:text-7xl">
+        <h1 className="font-display text-4xl font-bold leading-[1.02] sm:text-7xl">
           Behind the
           <br />
           <span className="text-glow text-primary">baseline.</span>

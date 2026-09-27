@@ -85,7 +85,7 @@ export function MonthCalendar({ today, initialMonth, marked, selected, onSelect,
                   aria-label={`${format(day, "EEEE, MMMM d")}${mark ? (mark.voted ? ", you're in" : ", poll open") : ""}`}
                   className={cn(
                     "calendar-day relative mx-auto flex w-full flex-col items-center justify-center gap-0.5 rounded-xl font-display text-sm font-semibold",
-                    compact ? "h-10" : "h-11 max-w-16 sm:h-14",
+                    compact ? "h-10" : "h-11 sm:h-14 sm:max-w-16",
                     !interactive && "cursor-default text-muted-foreground/45",
                     past && "opacity-40",
                     isToday && !isPicked && selected !== iso && "ring-1 ring-primary/60",

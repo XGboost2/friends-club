@@ -68,7 +68,7 @@ export default function Home() {
           </span>
           Your next game starts here
         </motion.div>
-        <motion.h1 initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, delay: 0.08 }} className="max-w-5xl font-display text-[clamp(2.6rem,9vw,7.2rem)] font-bold leading-[.98] text-foreground">
+        <motion.h1 initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, delay: 0.08 }} className="max-w-5xl font-display text-[clamp(2.2rem,9vw,7.2rem)] font-bold leading-[.98] text-foreground">
           Book your court.
           <br />
           <span className="text-glow text-primary">Bring the smash.</span>
@@ -86,7 +86,7 @@ export default function Home() {
             </a>
           </div>
           <div className="flex w-fit items-center gap-4 border-l-2 border-primary pl-5">
-            <div className="font-display text-4xl font-bold leading-none sm:text-6xl">{sessions ? openCount.toString().padStart(2, "0") : "—"}</div>
+            <div className="font-display text-3xl font-bold leading-none sm:text-6xl">{sessions ? openCount.toString().padStart(2, "0") : "—"}</div>
             <div className="text-xs font-semibold uppercase leading-relaxed tracking-[.14em] text-muted-foreground">
               Open
               <br />
