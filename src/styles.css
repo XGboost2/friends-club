@@ -105,7 +105,7 @@
   &:focus { border-color: oklch(0.92 0.22 123 / 60%); box-shadow: 0 0 0 4px oklch(0.92 0.22 123 / 12%); background: oklch(0.99 0.005 250 / 6%); }
 }
 
-.ambient-stage { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: var(--background); }
+.ambient-stage { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; background: var(--background); }
 .ambient-stage::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 0%, var(--background) 84%); }
 .aurora { position: absolute; width: min(68vw, 900px); height: min(60vw, 760px); border-radius: 50%; filter: blur(100px); opacity: .13; animation: drift 22s ease-in-out infinite alternate; }
 .aurora-lime { top: -34%; left: -18%; background: var(--primary); }
