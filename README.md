@@ -1,0 +1,44 @@
+# Friends Club 🏸
+
+Badminton session booking for our Prague group. Admins post polls, players join (with Multisport or paying at the venue) and bring guests. At the entrance, players scan their Multisport card and get marked **paid**.
+
+## What's inside
+
+| Area | What it does |
+| --- | --- |
+| **Calendar** (`/`) | Month calendar highlighting dates with a posted poll; ✓ marks sessions you're in. Join with name, Multisport card (number + name on card) or "pay at venue", plus guests. Confetti confirmation card. |
+| **My sessions** (`/my-sessions`) | Your upcoming sessions: date, time, venue, players going, court number(s) once assigned. Leave a session. Players have no accounts — each device gets an anonymous player id. |
+| **Admin → Polls** | Post polls for one or many dates at once, assign court numbers, close/reopen voting, edit, delete, see/remove players, approve other admins. |
+| **Admin → Check-in** | Camera scanner for Multisport QR codes and barcodes (plus manual entry). Live **Paid / Pending / Others** lists; tap a row to mark paid by hand. Full-screen kiosk mode. |
+| **Admin → Records** | Everything from the last 7 days. Sessions older than 7 days — including stored card numbers — are deleted automatically (hourly and on admin load). |
+
+The first account created at `/admin/login` becomes the admin. Later sign-ups wait until an admin approves them on the Polls page.
+
+## Stack
+
+- React 19 + Vite + Tailwind CSS 4 + Framer Motion (UI originally prototyped in Lovable)
+- Hono on Node 22 serving the API and the built frontend
+- PostgreSQL (tables are created automatically on startup)
+
+## Run locally
+
+```bash
+npm install
+export DATABASE_URL=postgres://user:pass@localhost:5432/friends
+npm run dev        # API on :3000, Vite on :5173 (proxies /api)
+```
+
+Production: `npm run build && npm start`.
+
+## Environment variables
+
+| Name | Required | Notes |
+| --- | --- | --- |
+| `DATABASE_URL` | yes | Postgres connection string (on Railway: reference the Postgres service's `DATABASE_URL`). |
+| `NODE_ENV` | recommended | Set to `production` so admin cookies are `Secure`. |
+| `CLUB_TIMEZONE` | no | Defaults to `Europe/Prague`; used for "today" and the 7-day retention. |
+| `PORT` | no | Provided by Railway. |
+
+## Deploy (Railway)
+
+`railway.json` builds with `npm run build`, starts with `npm start` and health-checks `/api/health`. Add a Postgres database to the project, set `DATABASE_URL` and `NODE_ENV=production` on the app service, and generate a domain. The camera scanner needs HTTPS, which Railway domains provide.
