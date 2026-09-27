@@ -370,19 +370,10 @@ function Scanner({ onCode }: { onCode: (code: string) => void }) {
         hints.set(DecodeHintType.POSSIBLE_FORMATS, [
           BarcodeFormat.QR_CODE,
           BarcodeFormat.CODE_128,
-          BarcodeFormat.CODE_39,
-          BarcodeFormat.CODE_93,
           BarcodeFormat.EAN_13,
-          BarcodeFormat.EAN_8,
-          BarcodeFormat.ITF,
-          BarcodeFormat.CODABAR,
-          BarcodeFormat.UPC_A,
           BarcodeFormat.PDF_417,
-          BarcodeFormat.DATA_MATRIX,
-          BarcodeFormat.AZTEC,
         ]);
-        hints.set(DecodeHintType.TRY_HARDER, true);
-        const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 80 });
+        const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 40 });
         if (!videoRef.current) throw new Error("Video element not mounted.");
         const controls = await reader.decodeFromVideoDevice(chosen?.deviceId, videoRef.current, (result) => {
           if (result) onCodeRef.current(result.getText());
