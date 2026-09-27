@@ -8,7 +8,7 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { CLUB_TZ, query, tx, migrate, cleanupOldRecords } from "./db.js";
-import { renderPage, robotsTxt, sitemapXml, canonicalHostRedirect } from "./seo.js";
+import { renderPage, robotsTxt, sitemapXml } from "./seo.js";
 
 const app = new Hono();
 const isProd = process.env.NODE_ENV === "production";
@@ -492,7 +492,6 @@ app.onError((err, c) => {
 });
 
 // ---------- SEO + static frontend ----------
-app.use("*", async (c, next) => canonicalHostRedirect(c) ?? next());
 app.get("/robots.txt", (c) => c.text(robotsTxt(), 200, { "Cache-Control": "public, max-age=3600" }));
 app.get("/sitemap.xml", async (c) => c.body(await sitemapXml(), 200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" }));
 

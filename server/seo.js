@@ -4,7 +4,6 @@ import { query, CLUB_TZ } from "./db.js";
 const site = JSON.parse(await readFile(new URL("../shared/site.json", import.meta.url), "utf8"));
 
 export const SITE_URL = (process.env.SITE_URL || "https://friends-club.cz").replace(/\/+$/, "");
-const SITE_HOST = new URL(SITE_URL).host;
 const OG_IMAGE = `${SITE_URL}/og-image.png`;
 
 const esc = (value) =>
@@ -184,16 +183,4 @@ export async function sitemapXml() {
   </url>
 </urlset>
 `;
-}
-
-/** Send visitors from www.* or the *.onrender.com address to the one canonical domain. */
-export function canonicalHostRedirect(c) {
-  if (process.env.NODE_ENV !== "production" || c.req.path.startsWith("/api/")) return null;
-  const host = (c.req.header("x-forwarded-host") || c.req.header("host") || "").toLowerCase();
-  if (!host || host === SITE_HOST) return null;
-  if (host === `www.${SITE_HOST}` || host.endsWith(".onrender.com")) {
-    const url = new URL(c.req.url);
-    return c.redirect(`${SITE_URL}${url.pathname}${url.search}`, 301);
-  }
-  return null;
 }
