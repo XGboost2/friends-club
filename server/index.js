@@ -125,7 +125,7 @@ app.post("/api/auth/request-otp", async (c) => {
     [data.email, data.purpose, codeHash],
   );
   try {
-    await sendOtp(data.email, code, data.purpose);
+    await sendOtp(data.email, code, data.purpose, OTP_TTL_MINUTES);
   } catch (e) {
     console.error("sendOtp failed", e);
     return bad(c, "We couldn't send the code right now. Try again in a moment.", 502);
