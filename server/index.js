@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { CLUB_TZ, query, tx, migrate, cleanupOldRecords } from "./db.js";
+import { CLUB_TZ, query, tx, migrate, cleanupOldRecords, storageStats } from "./db.js";
 import { renderPage, robotsTxt, sitemapXml } from "./seo.js";
 import { sendOtp } from "./email.js";
 
@@ -1166,6 +1166,17 @@ app.patch("/api/admin/tournaments/registrations/:id", async (c) => {
 app.delete("/api/admin/tournaments/registrations/:id", async (c) => {
   await query(`DELETE FROM tournament_registrations WHERE id = $1`, [Number(c.req.param("id"))]);
   return c.json({ ok: true });
+});
+
+// ---------- admin: storage / retention ----------
+app.get("/api/admin/storage", async (c) => {
+  const stats = await storageStats();
+  return c.json(stats);
+});
+
+app.post("/api/admin/storage/cleanup", async (c) => {
+  const removed = await cleanupOldRecords();
+  return c.json({ removed });
 });
 
 // ---------- admin: team ----------

@@ -190,11 +190,68 @@ export async function migrate() {
 }
 
 /** Keep two weeks of history: drop sessions (and their players, guests, card numbers) older than 14 days. */
+/**
+ * Retention policy — runs on boot and every hour.
+ *
+ *   sessions          : dropped 14 days after the session date (cascades registrations + guests + cards)
+ *   tournaments       : dropped 90 days after starts_on (cascades categories + registrations + matches)
+ *   admin_sessions    : any row past its expires_at
+ *   player_sessions   : any row past its expires_at
+ *   otp_codes         : any row past its expires_at (no grace — OTPs are single-use)
+ *   inactive players  : never logged in for 12 months AND no bookings/entries — deleted (GDPR minimisation)
+ *
+ * All destructive work is logged with counts so we can watch Neon usage over time.
+ */
 export async function cleanupOldRecords() {
-  const { rowCount } = await query(`DELETE FROM sessions WHERE date < current_date - 14`);
-  await query(`DELETE FROM admin_sessions WHERE expires_at < now()`);
-  await query(`DELETE FROM player_sessions WHERE expires_at < now()`);
-  await query(`DELETE FROM otp_codes WHERE expires_at < now() - interval '1 day'`);
-  if (rowCount) console.log(`Retention: removed ${rowCount} session(s) older than 14 days`);
-  return rowCount;
+  const stats = {};
+  const run = async (label, sql) => {
+    const { rowCount } = await query(sql);
+    if (rowCount) stats[label] = rowCount;
+    return rowCount;
+  };
+
+  await run("sessions", `DELETE FROM sessions WHERE date < current_date - 14`);
+  await run("tournaments", `DELETE FROM tournaments WHERE starts_on < current_date - 90`);
+  await run("admin_sessions", `DELETE FROM admin_sessions WHERE expires_at < now()`);
+  await run("player_sessions", `DELETE FROM player_sessions WHERE expires_at < now()`);
+  await run("otp_codes", `DELETE FROM otp_codes WHERE expires_at < now()`);
+  await run(
+    "inactive_players",
+    `DELETE FROM players p
+       WHERE p.created_at < now() - interval '12 months'
+         AND NOT EXISTS (SELECT 1 FROM player_sessions s WHERE s.player_id = p.id AND s.created_at > now() - interval '12 months')
+         AND NOT EXISTS (SELECT 1 FROM registrations r WHERE r.player_id = p.id)
+         AND NOT EXISTS (SELECT 1 FROM tournament_registrations r WHERE r.player_id = p.id OR r.partner_id = p.id)`,
+  );
+
+  if (Object.keys(stats).length) {
+    const parts = Object.entries(stats).map(([k, v]) => `${k}=${v}`).join(", ");
+    console.log(`Retention swept: ${parts}`);
+  }
+  return stats;
+}
+
+/** Snapshot of table sizes + oldest rows — for the admin storage panel and Neon watch-dog. */
+export async function storageStats() {
+  const tables = [
+    { table: "sessions", ageColumn: "date" },
+    { table: "registrations", ageColumn: "created_at" },
+    { table: "guests", ageColumn: null },
+    { table: "players", ageColumn: "created_at" },
+    { table: "player_sessions", ageColumn: "created_at" },
+    { table: "otp_codes", ageColumn: "created_at" },
+    { table: "tournaments", ageColumn: "starts_on" },
+    { table: "tournament_categories", ageColumn: null },
+    { table: "tournament_registrations", ageColumn: "created_at" },
+    { table: "admins", ageColumn: "created_at" },
+    { table: "admin_sessions", ageColumn: null },
+  ];
+  const out = [];
+  for (const { table, ageColumn } of tables) {
+    const oldest = ageColumn ? `, min(${ageColumn})::text AS oldest` : `, NULL AS oldest`;
+    const { rows } = await query(`SELECT count(*)::int AS count ${oldest} FROM ${table}`);
+    out.push({ table, count: rows[0].count, oldest: rows[0].oldest });
+  }
+  const db = await query(`SELECT pg_database_size(current_database())::bigint AS bytes`);
+  return { tables: out, databaseBytes: Number(db.rows[0].bytes) };
 }
