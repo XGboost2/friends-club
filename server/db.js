@@ -41,6 +41,7 @@ export async function tx(fn) {
 }
 
 export async function migrate() {
+  // Admin auth tables stay untouched across the players rollout.
   await query(`
     CREATE TABLE IF NOT EXISTS admins (
       id SERIAL PRIMARY KEY,
@@ -55,6 +56,43 @@ export async function migrate() {
       admin_id INTEGER NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
       expires_at TIMESTAMPTZ NOT NULL
     );
+  `);
+
+  // First time the players rollout runs, wipe old device-only bookings so the
+  // new registration flow (email verification) starts from a clean slate.
+  const check = await query(`SELECT to_regclass('public.players') AS t`);
+  if (!check.rows[0].t) {
+    await query(`DROP TABLE IF EXISTS guests, registrations, sessions CASCADE`);
+  }
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS players (
+      id SERIAL PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      phone TEXT NOT NULL,
+      name TEXT NOT NULL,
+      level TEXT NOT NULL CHECK (level IN ('beginner','intermediate','advanced')),
+      blocked BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS otp_codes (
+      email TEXT NOT NULL,
+      purpose TEXT NOT NULL CHECK (purpose IN ('register','login')),
+      code_hash TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (email, purpose)
+    );
+
+    CREATE TABLE IF NOT EXISTS player_sessions (
+      token_hash TEXT PRIMARY KEY,
+      player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS player_sessions_player_idx ON player_sessions(player_id);
 
     CREATE TABLE IF NOT EXISTS sessions (
       id SERIAL PRIMARY KEY,
@@ -74,7 +112,7 @@ export async function migrate() {
     CREATE TABLE IF NOT EXISTS registrations (
       id SERIAL PRIMARY KEY,
       session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      player_id TEXT NOT NULL,
+      player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
       player_name TEXT NOT NULL,
       uses_multisport BOOLEAN NOT NULL DEFAULT FALSE,
       card_number TEXT,
@@ -102,6 +140,8 @@ export async function migrate() {
 export async function cleanupOldRecords() {
   const { rowCount } = await query(`DELETE FROM sessions WHERE date < current_date - 14`);
   await query(`DELETE FROM admin_sessions WHERE expires_at < now()`);
+  await query(`DELETE FROM player_sessions WHERE expires_at < now()`);
+  await query(`DELETE FROM otp_codes WHERE expires_at < now() - interval '1 day'`);
   if (rowCount) console.log(`Retention: removed ${rowCount} session(s) older than 14 days`);
   return rowCount;
 }

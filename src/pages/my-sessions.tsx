@@ -1,58 +1,45 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUpRight, CalendarDays, Clock3, CreditCard, Layers3, MapPin, Search, UserPlus, Users } from "lucide-react";
+import { ArrowUpRight, CalendarDays, Clock3, CreditCard, Layers3, MapPin, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Eyebrow, Spinner } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { AttendeesSheet } from "@/components/attendees-sheet";
+import { AuthSheet } from "@/components/auth-sheet";
 import { api, type Session } from "@/lib/api";
 import { usePlayer } from "@/lib/player";
 import { courtsLabel, fmt } from "@/lib/utils";
 
 export default function MySessions() {
-  const [player] = usePlayer();
+  const { player, loading } = usePlayer();
   const [sessions, setSessions] = useState<Session[] | null>(null);
-  const [lookupName, setLookupName] = useState("");
-  const [lookupMode, setLookupMode] = useState(false);
   const [leaving, setLeaving] = useState<Session | null>(null);
   const [busy, setBusy] = useState(false);
   const [showPlayers, setShowPlayers] = useState<Session | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
 
   const load = useCallback(async () => {
+    if (!player) { setSessions([]); return; }
     try {
-      const res = await api<{ sessions: Session[] }>(`/api/my-sessions?playerId=${encodeURIComponent(player.playerId)}`);
+      const res = await api<{ sessions: Session[] }>(`/api/my-sessions`);
       setSessions(res.sessions);
-      setLookupMode(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't load your sessions.");
       setSessions([]);
     }
-  }, [player.playerId]);
+  }, [player?.id]);
 
   useEffect(() => {
-    load();
-  }, [load]);
-
-  async function lookup(e: React.FormEvent) {
-    e.preventDefault();
-    if (!lookupName.trim()) return;
-    setSessions(null);
-    try {
-      const res = await api<{ sessions: Session[] }>(`/api/my-sessions?name=${encodeURIComponent(lookupName.trim())}`);
-      setSessions(res.sessions);
-      setLookupMode(true);
-    } catch {
-      setSessions([]);
-    }
-  }
+    if (!loading) load();
+  }, [loading, load]);
 
   async function leave() {
     if (!leaving) return;
     setBusy(true);
     try {
-      await api(`/api/sessions/${leaving.id}/leave`, { body: { playerId: player.playerId } });
+      await api(`/api/sessions/${leaving.id}/leave`, { method: "POST" });
       toast.success("You've left the session.");
       setLeaving(null);
       load();
@@ -61,6 +48,22 @@ export default function MySessions() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (!loading && !player) {
+    return (
+      <div className="mx-auto flex min-h-[70vh] max-w-lg flex-col items-center justify-center px-5 text-center">
+        <div className="mb-6 grid size-14 place-items-center rounded-2xl bg-primary/15 text-primary">
+          <CalendarDays size={26} />
+        </div>
+        <h1 className="font-display text-3xl font-bold">Sign in to see your sessions</h1>
+        <p className="mt-3 leading-relaxed text-muted-foreground">Your bookings are tied to your account and follow you across devices.</p>
+        <Button variant="neon" size="lg" className="mt-6" onClick={() => setAuthOpen(true)}>
+          Sign in or register
+        </Button>
+        <AuthSheet open={authOpen} onClose={() => setAuthOpen(false)} onSignedIn={load} />
+      </div>
+    );
   }
 
   return (
@@ -72,7 +75,7 @@ export default function MySessions() {
             My sessions<span className="text-primary">.</span>
           </h1>
           <p className="mt-4 max-w-xl leading-relaxed text-muted-foreground">
-            {player.name ? `Hey ${player.name.split(" ")[0]} — here's` : "Here's"} every upcoming game you've voted for. Court numbers appear once an admin assigns them.
+            {player?.name ? `Hey ${player.name.split(" ")[0]} — here's` : "Here's"} every upcoming game you've voted for. Court numbers appear once an admin assigns them.
           </p>
         </div>
         <Button variant="glass" className="h-11" asChild>
@@ -86,11 +89,6 @@ export default function MySessions() {
         <span className="flex items-center gap-2 text-sm font-medium">
           <CalendarDays size={17} className="text-primary" /> Upcoming
           <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">{sessions?.length ?? "…"}</span>
-          {lookupMode && (
-            <button onClick={load} className="ml-2 text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground">
-              Back to this device
-            </button>
-          )}
         </span>
         <span className="text-xs text-muted-foreground">Prague time</span>
       </div>
@@ -106,24 +104,11 @@ export default function MySessions() {
           <div className="mx-auto mb-5 grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary">
             <CalendarDays size={26} />
           </div>
-          <h2 className="font-display text-2xl font-bold">{lookupMode ? "No sessions found" : "No sessions yet"}</h2>
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
-            {lookupMode ? "Check the spelling — it must match the name you joined with." : "Join a poll from the calendar and it will show up here."}
-          </p>
+          <h2 className="font-display text-2xl font-bold">No sessions yet</h2>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Join a poll from the calendar and it will show up here.</p>
           <Button variant="neon" className="mt-6" asChild>
             <Link to="/">Find a game</Link>
           </Button>
-          {!lookupMode && (
-            <form onSubmit={lookup} className="mt-8 border-t border-border pt-6 text-left">
-              <p className="mb-3 text-xs text-muted-foreground">Joined from another phone or cleared your browser? Look up your bookings by name:</p>
-              <div className="flex gap-2">
-                <input className="field" value={lookupName} onChange={(e) => setLookupName(e.target.value)} placeholder="Your name" />
-                <Button type="submit" variant="glass" className="h-12 px-4" aria-label="Search">
-                  <Search size={17} />
-                </Button>
-              </div>
-            </form>
-          )}
         </div>
       )}
 

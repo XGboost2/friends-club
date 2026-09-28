@@ -6,46 +6,43 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Field, Spinner, Toggle } from "@/components/ui/field";
 import { api, type Session } from "@/lib/api";
-import { usePlayer } from "@/lib/player";
+import { loadCardPrefs, saveCardPrefs, usePlayer } from "@/lib/player";
 import { fmt } from "@/lib/utils";
 
 export function JoinSheet({ session, onClose, onJoined }: { session: Session | null; onClose: () => void; onJoined: (session: Session, guests: string[], multisport: boolean) => void }) {
-  const [player, updatePlayer] = usePlayer();
-  const [name, setName] = useState(player.name);
-  const [multisport, setMultisport] = useState(player.usesMultisport);
-  const [cardNumber, setCardNumber] = useState(player.cardNumber);
-  const [holderName, setHolderName] = useState(player.holderName || player.name);
+  const { player } = usePlayer();
+  const [multisport, setMultisport] = useState(true);
+  const [cardNumber, setCardNumber] = useState("");
+  const [holderName, setHolderName] = useState("");
   const [guests, setGuests] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (session) {
-      setName(player.name);
-      setMultisport(player.usesMultisport);
-      setCardNumber(player.cardNumber);
-      setHolderName(player.holderName || player.name);
-      setGuests([]);
-    }
+    if (!session) return;
+    const prefs = loadCardPrefs();
+    setMultisport(prefs.usesMultisport);
+    setCardNumber(prefs.cardNumber);
+    setHolderName(prefs.holderName || player?.name || "");
+    setGuests([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id]);
 
-  if (!session) return <Sheet open={false} onClose={onClose}>{null}</Sheet>;
+  if (!session || !player) return <Sheet open={false} onClose={onClose}>{null}</Sheet>;
   const spotsLeft = Math.max(0, session.capacity - session.total);
   const maxGuests = Math.min(10, Math.max(0, spotsLeft - 1));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!session) return;
-    if (!name.trim()) return toast.error("Enter your name first.");
+    if (!session || !player) return;
     if (multisport && cardNumber.replace(/[^a-z0-9]/gi, "").length < 6) return toast.error("Enter your full Multisport card number.");
     if (multisport && !holderName.trim()) return toast.error("Enter the name on the Multisport card.");
-    const guestNames = guests.map((g, i) => g.trim() || `${name.trim()}'s guest ${i + 1}`);
+    const guestNames = guests.map((g, i) => g.trim() || `${player.name.trim()}'s guest ${i + 1}`);
     setBusy(true);
     try {
       const res = await api<{ session: Session }>(`/api/sessions/${session.id}/join`, {
-        body: { playerId: player.playerId, name: name.trim(), usesMultisport: multisport, cardNumber: multisport ? cardNumber : null, holderName: multisport ? holderName.trim() : null, guests: guestNames },
+        body: { usesMultisport: multisport, cardNumber: multisport ? cardNumber : null, holderName: multisport ? holderName.trim() : null, guests: guestNames },
       });
-      updatePlayer({ name: name.trim(), usesMultisport: multisport, cardNumber: multisport ? cardNumber.trim() : player.cardNumber, holderName: multisport ? holderName.trim() : player.holderName });
+      saveCardPrefs({ usesMultisport: multisport, cardNumber: multisport ? cardNumber.trim() : loadCardPrefs().cardNumber, holderName: multisport ? holderName.trim() : loadCardPrefs().holderName });
       onJoined(res.session, guestNames, multisport);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't join. Try again.");
@@ -66,9 +63,13 @@ export function JoinSheet({ session, onClose, onJoined }: { session: Session | n
       }
     >
       <form onSubmit={submit} className="space-y-6 pb-4 pt-4">
-        <Field label="Your name">
-          <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. John Doe" autoComplete="name" maxLength={60} required />
-        </Field>
+        <div className="flex items-center gap-3 rounded-2xl border border-border bg-soft px-4 py-3">
+          <span className="grid size-10 place-items-center rounded-xl bg-primary/15 text-sm font-bold text-primary">{player.name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || "?"}</span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{player.name}</p>
+            <p className="truncate text-xs text-muted-foreground">Signed in as {player.email}</p>
+          </div>
+        </div>
 
         <div className={`rounded-2xl border p-4 transition-colors ${multisport ? "border-primary/35 bg-primary/[.06]" : "border-border bg-soft"}`}>
           <div className="flex items-center justify-between gap-4">

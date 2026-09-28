@@ -33,6 +33,18 @@ export type Registration = {
 export type SessionDetail = Session & { registrations: Registration[] };
 export type Admin = { id: number; email: string; approved: boolean; created_at?: string };
 
+export type PlayerLevel = "beginner" | "intermediate" | "advanced";
+export type Player = {
+  id: number;
+  email: string;
+  phone: string;
+  name: string;
+  level: PlayerLevel;
+  blocked: boolean;
+  createdAt?: string;
+};
+export type AdminPlayer = Player & { sessionCount: number; lastActive: string | null };
+
 export class ApiError extends Error {
   constructor(message: string, public status: number) {
     super(message);

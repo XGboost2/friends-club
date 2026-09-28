@@ -1,11 +1,13 @@
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { CalendarDays, ChevronRight, ClipboardList, History, ScanLine, Ticket, House, LogOut } from "lucide-react";
+import { CalendarDays, ChevronRight, ClipboardList, History, ScanLine, Ticket, House, LogOut, LogIn, Users2 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import site from "../../shared/site.json";
 import { AmbientBackground, ShuttleLogo } from "./brand";
+import { AuthSheet } from "./auth-sheet";
 import { cn } from "@/lib/utils";
 import { useAdmin } from "@/lib/admin";
+import { usePlayer } from "@/lib/player";
 
 const playerLinks = [
   { to: "/", label: "Calendar", icon: CalendarDays, end: true },
@@ -18,11 +20,13 @@ const titles: Record<string, string> = {
   "/admin/polls": "Polls — Friends Club admin",
   "/admin/checkin": "Check-in — Friends Club admin",
   "/admin/records": "Records — Friends Club admin",
+  "/admin/players": "Players — Friends Club admin",
 };
 
 const adminLinks = [
   { to: "/admin/polls", label: "Polls", icon: ClipboardList, end: false },
   { to: "/admin/checkin", label: "Check-in", icon: ScanLine, end: false },
+  { to: "/admin/players", label: "Players", icon: Users2, end: false },
   { to: "/admin/records", label: "Records", icon: History, end: false },
 ];
 
@@ -33,6 +37,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [pathname]);
   const admin = pathname.startsWith("/admin");
   const { admin: me, logout } = useAdmin();
+  const { player, logout: playerLogout } = usePlayer();
+  const [authOpen, setAuthOpen] = useState(false);
   const signedIn = admin && me?.approved;
   const links = admin ? (signedIn ? [{ to: "/", label: "Sessions", icon: House, end: true }, ...adminLinks] : []) : playerLinks;
 
@@ -50,14 +56,30 @@ export function AppShell({ children }: { children: ReactNode }) {
             ))}
           </nav>
         )}
-        {signedIn ? (
-          <button onClick={logout} className="flex items-center gap-2 rounded-full border border-border bg-soft px-3.5 py-2 text-xs font-semibold text-muted-foreground transition hover:text-foreground">
-            <LogOut size={14} /> <span className="hidden sm:inline">Sign out</span>
-          </button>
-        ) : (
-          <div className="hidden items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground sm:flex">
-            <span className="size-2 rounded-full bg-primary lime-glow" /> Prague, CZ
+        {admin ? (
+          signedIn ? (
+            <button onClick={logout} className="flex items-center gap-2 rounded-full border border-border bg-soft px-3.5 py-2 text-xs font-semibold text-muted-foreground transition hover:text-foreground">
+              <LogOut size={14} /> <span className="hidden sm:inline">Sign out</span>
+            </button>
+          ) : (
+            <div className="hidden items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground sm:flex">
+              <span className="size-2 rounded-full bg-primary lime-glow" /> Prague, CZ
+            </div>
+          )
+        ) : player ? (
+          <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-2 rounded-full border border-border bg-soft px-3 py-1.5 text-xs sm:flex">
+              <span className="grid size-6 place-items-center rounded-full bg-primary/20 text-[10px] font-bold text-primary">{player.name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || "?"}</span>
+              <span className="max-w-[10rem] truncate font-semibold">{player.name}</span>
+            </div>
+            <button onClick={playerLogout} className="flex items-center gap-2 rounded-full border border-border bg-soft px-3.5 py-2 text-xs font-semibold text-muted-foreground transition hover:text-foreground" aria-label="Sign out">
+              <LogOut size={14} /> <span className="hidden sm:inline">Sign out</span>
+            </button>
           </div>
+        ) : (
+          <button onClick={() => setAuthOpen(true)} className="flex items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3.5 py-2 text-xs font-semibold text-primary transition hover:bg-primary/20">
+            <LogIn size={14} /> <span className="hidden sm:inline">Sign in</span>
+          </button>
         )}
       </header>
       <motion.main key={pathname} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className={cn("relative z-10 flex-1", links.length ? "pb-24 md:pb-0" : "")}>
@@ -80,6 +102,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
       )}
+      {!admin && <AuthSheet open={authOpen} onClose={() => setAuthOpen(false)} />}
     </div>
   );
 }

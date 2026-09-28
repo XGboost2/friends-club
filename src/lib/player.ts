@@ -1,60 +1,66 @@
-import { useCallback, useEffect, useState } from "react";
+import { createContext, createElement, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { api, type Player } from "./api";
 
-/**
- * Players don't have accounts. Each device gets a random player id (kept in
- * localStorage) plus the name they last used, so "My sessions" works without login.
- */
-export type PlayerProfile = { playerId: string; name: string; usesMultisport: boolean; cardNumber: string; holderName: string };
+type PlayerState = {
+  player: Player | null;
+  loading: boolean;
+  refresh: () => Promise<void>;
+  setPlayer: (p: Player | null) => void;
+  logout: () => Promise<void>;
+};
 
-const KEY = "friends-club.player";
+const PlayerContext = createContext<PlayerState | null>(null);
 
-function newId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-}
-
-export function loadPlayer(): PlayerProfile {
-  let stored: Partial<PlayerProfile> = {};
-  try {
-    stored = JSON.parse(localStorage.getItem(KEY) || "{}");
-  } catch {
-    /* storage unavailable */
-  }
-  const profile: PlayerProfile = {
-    playerId: stored.playerId || newId(),
-    name: stored.name || "",
-    usesMultisport: stored.usesMultisport ?? true,
-    cardNumber: stored.cardNumber || "",
-    holderName: stored.holderName || "",
-  };
-  if (!stored.playerId) savePlayer(profile);
-  return profile;
-}
-
-export function savePlayer(profile: PlayerProfile) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(profile));
-  } catch {
-    /* storage unavailable */
-  }
-  window.dispatchEvent(new Event("friends-club:player"));
+export function PlayerProvider({ children }: { children: ReactNode }) {
+  const [player, setPlayer] = useState<Player | null>(null);
+  const [loading, setLoading] = useState(true);
+  const refresh = useCallback(async () => {
+    try {
+      const { player } = await api<{ player: Player | null }>("/api/me");
+      setPlayer(player);
+    } catch {
+      setPlayer(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  const logout = useCallback(async () => {
+    await api("/api/auth/logout", { method: "POST" }).catch(() => {});
+    setPlayer(null);
+  }, []);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+  return createElement(PlayerContext.Provider, { value: { player, loading, refresh, setPlayer, logout } }, children);
 }
 
 export function usePlayer() {
-  const [player, setPlayer] = useState<PlayerProfile>(() => loadPlayer());
-  useEffect(() => {
-    const sync = () => setPlayer(loadPlayer());
-    window.addEventListener("friends-club:player", sync);
-    window.addEventListener("storage", sync);
-    return () => {
-      window.removeEventListener("friends-club:player", sync);
-      window.removeEventListener("storage", sync);
+  const ctx = useContext(PlayerContext);
+  if (!ctx) throw new Error("usePlayer must be used inside PlayerProvider");
+  return ctx;
+}
+
+// Card details stay per-device (payment convenience, not identity).
+export type CardPrefs = { usesMultisport: boolean; cardNumber: string; holderName: string };
+const CARD_KEY = "friends-club.card";
+
+export function loadCardPrefs(): CardPrefs {
+  try {
+    const stored = JSON.parse(localStorage.getItem(CARD_KEY) || "{}") as Partial<CardPrefs>;
+    return {
+      usesMultisport: stored.usesMultisport ?? true,
+      cardNumber: stored.cardNumber || "",
+      holderName: stored.holderName || "",
     };
-  }, []);
-  const update = useCallback((patch: Partial<PlayerProfile>) => {
-    const next = { ...loadPlayer(), ...patch };
-    savePlayer(next);
-    setPlayer(next);
-  }, []);
-  return [player, update] as const;
+  } catch {
+    return { usesMultisport: true, cardNumber: "", holderName: "" };
+  }
+}
+
+export function saveCardPrefs(prefs: CardPrefs) {
+  try {
+    localStorage.setItem(CARD_KEY, JSON.stringify(prefs));
+  } catch {
+    /* storage unavailable */
+  }
 }

@@ -9,12 +9,18 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { CLUB_TZ, query, tx, migrate, cleanupOldRecords } from "./db.js";
 import { renderPage, robotsTxt, sitemapXml } from "./seo.js";
+import { sendOtp } from "./email.js";
 
 const app = new Hono();
 const isProd = process.env.NODE_ENV === "production";
 const COOKIE = "fc_admin";
+const PLAYER_COOKIE = "fc_player";
 const SESSION_DAYS = 30;
+const PLAYER_SESSION_DAYS = 90;
 const CANCEL_LOCK_HOURS = 25;
+const OTP_TTL_MINUTES = 10;
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_RESEND_COOLDOWN_SECONDS = 30;
 
 // ---------- helpers ----------
 const cardKey = (value) => (value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -54,6 +60,10 @@ function mapSession(row) {
   };
 }
 
+function mapPlayer(row) {
+  return { id: row.id, email: row.email, phone: row.phone, name: row.name, level: row.level, blocked: row.blocked, createdAt: row.created_at };
+}
+
 const SESSION_STATS_SQL = `
   SELECT s.*,
     ((s.date::text || ' ' || s.start_time)::timestamp AT TIME ZONE '${CLUB_TZ}') AS start_at,
@@ -61,6 +71,131 @@ const SESSION_STATS_SQL = `
     (SELECT count(*) FROM guests g JOIN registrations r ON r.id = g.registration_id WHERE r.session_id = s.id) AS guest_count,
     COALESCE((SELECT json_agg(r.player_name ORDER BY r.created_at) FROM registrations r WHERE r.session_id = s.id), '[]'::json) AS players
   FROM sessions s`;
+
+// ---------- player auth ----------
+async function currentPlayer(c) {
+  const token = getCookie(c, PLAYER_COOKIE);
+  if (!token) return null;
+  const { rows } = await query(
+    `SELECT p.* FROM player_sessions s JOIN players p ON p.id = s.player_id
+     WHERE s.token_hash = $1 AND s.expires_at > now() AND NOT p.blocked`,
+    [hashToken(token)],
+  );
+  return rows[0] || null;
+}
+
+async function issuePlayerSession(c, playerId) {
+  const token = crypto.randomBytes(32).toString("hex");
+  await query(
+    `INSERT INTO player_sessions (token_hash, player_id, expires_at) VALUES ($1, $2, now() + interval '${PLAYER_SESSION_DAYS} days')`,
+    [hashToken(token), playerId],
+  );
+  setCookie(c, PLAYER_COOKIE, token, { httpOnly: true, secure: isProd, sameSite: "Lax", path: "/", maxAge: PLAYER_SESSION_DAYS * 86400 });
+}
+
+const emailSchema = z.string().trim().toLowerCase().email("enter a valid email");
+const phoneSchema = z.string().trim().min(6, "enter a valid phone number").max(30);
+const levelSchema = z.enum(["beginner", "intermediate", "advanced"]);
+const nameSchema = z.string().trim().min(1, "enter your name").max(60);
+const purposeSchema = z.enum(["register", "login"]);
+
+app.post("/api/auth/request-otp", async (c) => {
+  const { data, error } = await parseBody(c, z.object({ email: emailSchema, purpose: purposeSchema }));
+  if (error) return bad(c, error);
+  const existing = (await query(`SELECT id, blocked FROM players WHERE email = $1`, [data.email])).rows[0];
+  if (data.purpose === "register" && existing) return bad(c, "An account with this email already exists. Sign in instead.", 409);
+  if (data.purpose === "login" && !existing) return bad(c, "No account found for that email. Register first.", 404);
+  if (existing?.blocked) return bad(c, "This account has been blocked. Contact an admin.", 403);
+
+  const last = (await query(`SELECT created_at FROM otp_codes WHERE email = $1 AND purpose = $2`, [data.email, data.purpose])).rows[0];
+  if (last) {
+    const secs = (Date.now() - new Date(last.created_at).getTime()) / 1000;
+    if (secs < OTP_RESEND_COOLDOWN_SECONDS) {
+      return bad(c, `Wait ${Math.ceil(OTP_RESEND_COOLDOWN_SECONDS - secs)}s before requesting another code.`, 429);
+    }
+  }
+
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  const codeHash = await bcrypt.hash(code, 10);
+  await query(
+    `INSERT INTO otp_codes (email, purpose, code_hash, attempts, expires_at, created_at)
+     VALUES ($1, $2, $3, 0, now() + interval '${OTP_TTL_MINUTES} minutes', now())
+     ON CONFLICT (email, purpose) DO UPDATE
+       SET code_hash = EXCLUDED.code_hash, attempts = 0, expires_at = EXCLUDED.expires_at, created_at = now()`,
+    [data.email, data.purpose, codeHash],
+  );
+  try {
+    await sendOtp(data.email, code, data.purpose);
+  } catch (e) {
+    console.error("sendOtp failed", e);
+    return bad(c, "We couldn't send the code right now. Try again in a moment.", 502);
+  }
+  return c.json({ ok: true, expiresInMinutes: OTP_TTL_MINUTES });
+});
+
+app.post("/api/auth/verify-otp", async (c) => {
+  const { data, error } = await parseBody(c, z.object({
+    email: emailSchema,
+    purpose: purposeSchema,
+    code: z.string().trim().regex(/^\d{6}$/, "enter the 6-digit code"),
+    // register only:
+    name: nameSchema.optional(),
+    phone: phoneSchema.optional(),
+    level: levelSchema.optional(),
+  }));
+  if (error) return bad(c, error);
+
+  const otp = (await query(`SELECT * FROM otp_codes WHERE email = $1 AND purpose = $2`, [data.email, data.purpose])).rows[0];
+  if (!otp) return bad(c, "Request a code first.", 400);
+  if (new Date(otp.expires_at).getTime() < Date.now()) {
+    await query(`DELETE FROM otp_codes WHERE email = $1 AND purpose = $2`, [data.email, data.purpose]);
+    return bad(c, "That code has expired. Request a new one.", 410);
+  }
+  if (otp.attempts >= OTP_MAX_ATTEMPTS) {
+    await query(`DELETE FROM otp_codes WHERE email = $1 AND purpose = $2`, [data.email, data.purpose]);
+    return bad(c, "Too many wrong attempts. Request a new code.", 429);
+  }
+  const match = await bcrypt.compare(data.code, otp.code_hash);
+  if (!match) {
+    await query(`UPDATE otp_codes SET attempts = attempts + 1 WHERE email = $1 AND purpose = $2`, [data.email, data.purpose]);
+    return bad(c, "Wrong code. Try again.", 401);
+  }
+  // Code good: consume it.
+  await query(`DELETE FROM otp_codes WHERE email = $1 AND purpose = $2`, [data.email, data.purpose]);
+
+  let player;
+  if (data.purpose === "register") {
+    if (!data.name || !data.phone || !data.level) return bad(c, "Enter your name, phone, and level.", 400);
+    try {
+      player = (await query(
+        `INSERT INTO players (email, phone, name, level) VALUES ($1, $2, $3, $4) RETURNING *`,
+        [data.email, data.phone, data.name, data.level],
+      )).rows[0];
+    } catch (e) {
+      if (e.code === "23505") return bad(c, "An account with this email already exists. Sign in instead.", 409);
+      throw e;
+    }
+  } else {
+    player = (await query(`SELECT * FROM players WHERE email = $1`, [data.email])).rows[0];
+    if (!player) return bad(c, "Account not found.", 404);
+    if (player.blocked) return bad(c, "This account has been blocked. Contact an admin.", 403);
+  }
+
+  await issuePlayerSession(c, player.id);
+  return c.json({ player: mapPlayer(player) });
+});
+
+app.post("/api/auth/logout", async (c) => {
+  const token = getCookie(c, PLAYER_COOKIE);
+  if (token) await query(`DELETE FROM player_sessions WHERE token_hash = $1`, [hashToken(token)]);
+  deleteCookie(c, PLAYER_COOKIE, { path: "/" });
+  return c.json({ ok: true });
+});
+
+app.get("/api/me", async (c) => {
+  const player = await currentPlayer(c);
+  return c.json({ player: player ? mapPlayer(player) : null });
+});
 
 // ---------- public API ----------
 app.get("/api/health", (c) => c.json({ ok: true }));
@@ -83,8 +218,6 @@ app.get("/api/sessions/:id/attendees", async (c) => {
 });
 
 const joinSchema = z.object({
-  playerId: z.string().trim().min(8).max(64),
-  name: z.string().trim().min(1, "enter your name").max(60),
   usesMultisport: z.boolean(),
   cardNumber: z.string().trim().max(40).optional().nullable(),
   holderName: z.string().trim().max(80).optional().nullable(),
@@ -92,6 +225,8 @@ const joinSchema = z.object({
 });
 
 app.post("/api/sessions/:id/join", async (c) => {
+  const player = await currentPlayer(c);
+  if (!player) return bad(c, "Please sign in to join a session.", 401);
   const id = Number(c.req.param("id"));
   const { data, error } = await parseBody(c, joinSchema);
   if (error) return bad(c, error);
@@ -106,10 +241,8 @@ app.post("/api/sessions/:id/join", async (c) => {
       if (s.status !== "open") return { status: 409, error: "Voting for this session is closed." };
       const past = (await client.query(`SELECT $1::date < current_date AS past`, [s.date])).rows[0].past;
       if (past) return { status: 409, error: "This session is in the past." };
-      const existing = (await client.query(`SELECT id FROM registrations WHERE session_id = $1 AND player_id = $2`, [id, data.playerId])).rows[0];
+      const existing = (await client.query(`SELECT id FROM registrations WHERE session_id = $1 AND player_id = $2`, [id, player.id])).rows[0];
       if (existing) return { status: 409, error: "You're already in this session." };
-      const sameName = (await client.query(`SELECT 1 FROM registrations WHERE session_id = $1 AND lower(player_name) = lower($2)`, [id, data.name])).rows[0];
-      if (sameName) return { status: 409, error: `Someone named ${data.name} is already in. If that's you, check My sessions — otherwise add your surname.` };
       if (data.usesMultisport) {
         const sameCard = (await client.query(`SELECT 1 FROM registrations WHERE session_id = $1 AND card_key = $2`, [id, cardKey(data.cardNumber)])).rows[0];
         if (sameCard) return { status: 409, error: "This Multisport card is already registered for this session." };
@@ -127,7 +260,7 @@ app.post("/api/sessions/:id/join", async (c) => {
       const reg = (await client.query(
         `INSERT INTO registrations (session_id, player_id, player_name, uses_multisport, card_number, card_key, holder_name)
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-        [id, data.playerId, data.name, data.usesMultisport,
+        [id, player.id, player.name, data.usesMultisport,
           data.usesMultisport ? data.cardNumber.trim() : null,
           data.usesMultisport ? cardKey(data.cardNumber) : null,
           data.usesMultisport ? data.holderName : null],
@@ -147,9 +280,9 @@ app.post("/api/sessions/:id/join", async (c) => {
 });
 
 app.post("/api/sessions/:id/leave", async (c) => {
+  const player = await currentPlayer(c);
+  if (!player) return bad(c, "Please sign in to manage your bookings.", 401);
   const id = Number(c.req.param("id"));
-  const { data, error } = await parseBody(c, z.object({ playerId: z.string().min(8).max(64) }));
-  if (error) return bad(c, error);
   const session = (await query(
     `SELECT ((date::text || ' ' || start_time)::timestamp AT TIME ZONE $1) > now() + interval '${CANCEL_LOCK_HOURS} hours' AS can_leave
        FROM sessions WHERE id = $2`,
@@ -159,28 +292,27 @@ app.post("/api/sessions/:id/leave", async (c) => {
   if (!session.can_leave) return bad(c, `Too late to cancel — sessions lock ${CANCEL_LOCK_HOURS} hours before the start time.`, 409);
   const { rowCount } = await query(
     `DELETE FROM registrations WHERE session_id = $1 AND player_id = $2`,
-    [id, data.playerId],
+    [id, player.id],
   );
   if (!rowCount) return bad(c, "Booking not found.", 404);
   return c.json({ ok: true });
 });
 
 app.get("/api/my-sessions", async (c) => {
-  const playerId = c.req.query("playerId") || "";
-  const name = (c.req.query("name") || "").trim();
-  if (!playerId && !name) return c.json({ sessions: [] });
+  const player = await currentPlayer(c);
+  if (!player) return c.json({ sessions: [] });
   const { rows } = await query(
     `${SESSION_STATS_SQL}
      JOIN registrations me ON me.session_id = s.id
-     WHERE s.date >= current_date AND ${playerId ? "me.player_id = $1" : "lower(me.player_name) = lower($1)"}
+     WHERE s.date >= current_date AND me.player_id = $1
      ORDER BY s.date, s.start_time`,
-    [playerId || name],
+    [player.id],
   );
   const mine = await query(
-    `SELECT r.session_id, r.player_id, r.uses_multisport, r.status,
+    `SELECT r.session_id, r.uses_multisport, r.status,
        COALESCE((SELECT json_agg(g.name ORDER BY g.id) FROM guests g WHERE g.registration_id = r.id), '[]'::json) AS guests
-     FROM registrations r WHERE ${playerId ? "r.player_id = $1" : "lower(r.player_name) = lower($1)"}`,
-    [playerId || name],
+     FROM registrations r WHERE r.player_id = $1`,
+    [player.id],
   );
   const bySession = new Map(mine.rows.map((r) => [r.session_id, r]));
   const cutoffMs = CANCEL_LOCK_HOURS * 3_600_000;
@@ -188,7 +320,6 @@ app.get("/api/my-sessions", async (c) => {
     sessions: rows.map((row) => {
       const me = bySession.get(row.id);
       if (!me) return { ...mapSession(row), me: null };
-      const isMine = !!playerId && me.player_id === playerId;
       const beforeCutoff = row.start_at ? new Date(row.start_at).getTime() - Date.now() > cutoffMs : false;
       return {
         ...mapSession(row),
@@ -196,8 +327,8 @@ app.get("/api/my-sessions", async (c) => {
           multisport: me.uses_multisport,
           status: me.status,
           guests: me.guests,
-          isMine,
-          canLeave: isMine && beforeCutoff,
+          isMine: true,
+          canLeave: beforeCutoff,
         },
       };
     }),
@@ -460,6 +591,68 @@ app.get("/api/admin/records", async (c) => {
   const sessions = [];
   for (const row of rows) sessions.push(await sessionDetail(row.id));
   return c.json({ sessions });
+});
+
+// ---------- admin: players ----------
+app.get("/api/admin/players", async (c) => {
+  const { rows } = await query(
+    `SELECT p.*,
+       (SELECT count(*) FROM registrations r WHERE r.player_id = p.id) AS session_count,
+       (SELECT max(r.created_at) FROM registrations r WHERE r.player_id = p.id) AS last_active
+     FROM players p ORDER BY p.created_at DESC`,
+  );
+  return c.json({ players: rows.map((r) => ({ ...mapPlayer(r), sessionCount: Number(r.session_count), lastActive: r.last_active })) });
+});
+
+const adminPlayerSchema = z.object({ email: emailSchema, phone: phoneSchema, name: nameSchema, level: levelSchema });
+
+app.post("/api/admin/players", async (c) => {
+  const { data, error } = await parseBody(c, adminPlayerSchema);
+  if (error) return bad(c, error);
+  try {
+    const row = (await query(
+      `INSERT INTO players (email, phone, name, level) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [data.email, data.phone, data.name, data.level],
+    )).rows[0];
+    return c.json({ player: mapPlayer(row) });
+  } catch (e) {
+    if (e.code === "23505") return bad(c, "A player with this email already exists.", 409);
+    throw e;
+  }
+});
+
+app.patch("/api/admin/players/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { data, error } = await parseBody(c, z.object({
+    email: emailSchema.optional(),
+    phone: phoneSchema.optional(),
+    name: nameSchema.optional(),
+    level: levelSchema.optional(),
+    blocked: z.boolean().optional(),
+  }));
+  if (error) return bad(c, error);
+  const columns = { email: "email", phone: "phone", name: "name", level: "level", blocked: "blocked" };
+  const sets = [], values = [];
+  for (const [k, col] of Object.entries(columns)) {
+    if (data[k] !== undefined) { values.push(data[k]); sets.push(`${col} = $${values.length}`); }
+  }
+  if (!sets.length) return bad(c, "Nothing to update.");
+  values.push(id);
+  try {
+    const { rows } = await query(`UPDATE players SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING *`, values);
+    if (!rows[0]) return bad(c, "Player not found.", 404);
+    if (data.blocked) await query(`DELETE FROM player_sessions WHERE player_id = $1`, [id]);
+    return c.json({ player: mapPlayer(rows[0]) });
+  } catch (e) {
+    if (e.code === "23505") return bad(c, "Another player already uses this email.", 409);
+    throw e;
+  }
+});
+
+app.delete("/api/admin/players/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  await query(`DELETE FROM players WHERE id = $1`, [id]);
+  return c.json({ ok: true });
 });
 
 // ---------- admin: team ----------
