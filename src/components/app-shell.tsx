@@ -36,6 +36,7 @@ const titles: Record<string, string> = {
   "/": site.title,
   "/my-sessions": "My sessions — Friends Club",
   "/tournament": "Tournament — Friends Club",
+  "/profile": "Profile — Friends Club",
   "/admin/login": "Admin — Friends Club",
   "/admin/polls": "Polls — Friends Club admin",
   "/admin/checkin": "Check-in — Friends Club admin",
@@ -90,10 +91,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           )
         ) : player ? (
           <div className="flex items-center gap-2">
-            <div className="hidden items-center gap-2 rounded-full border border-border bg-soft px-3 py-1.5 text-xs sm:flex">
+            <Link to="/profile" className="flex items-center gap-2 rounded-full border border-border bg-soft px-3 py-1.5 text-xs transition hover:border-primary/40 hover:text-primary" aria-label="Open profile">
               <span className="grid size-6 place-items-center rounded-full bg-primary/20 text-[10px] font-bold text-primary">{player.name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || "?"}</span>
-              <span className="max-w-[10rem] truncate font-semibold">{player.name}</span>
-            </div>
+              <span className="hidden max-w-[10rem] truncate font-semibold sm:inline">{player.name}</span>
+            </Link>
             <button onClick={playerLogout} className="flex items-center gap-2 rounded-full border border-border bg-soft px-3.5 py-2 text-xs font-semibold text-muted-foreground transition hover:text-foreground" aria-label="Sign out">
               <LogOut size={14} /> <span className="hidden sm:inline">Sign out</span>
             </button>

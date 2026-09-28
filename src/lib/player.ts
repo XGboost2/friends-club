@@ -26,6 +26,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
   const logout = useCallback(async () => {
     await api("/api/auth/logout", { method: "POST" }).catch(() => {});
+    // Wipe device-only convenience data so a shared browser doesn't leak card details.
+    try { localStorage.removeItem(CARD_KEY); } catch { /* ignore */ }
     setPlayer(null);
   }, []);
   useEffect(() => {

@@ -56,7 +56,7 @@ export function AuthSheet({ open, onClose, initialMode = "signup", onSignedIn }:
     setBusy(true);
     try {
       await api("/api/auth/request-otp", { body: { email: trimmedEmail, purpose } });
-      toast.success(`We emailed a 6-digit code to ${trimmedEmail}.`);
+      toast.success(`If that email matches an account, we've sent a code to ${trimmedEmail}.`);
       setStep("code");
       setResendIn(30);
     } catch (err) {

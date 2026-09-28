@@ -82,6 +82,22 @@ const SESSION_STATS_SQL = `
     COALESCE((SELECT json_agg(r.player_name ORDER BY r.created_at) FROM registrations r WHERE r.session_id = s.id), '[]'::json) AS players
   FROM sessions s`;
 
+// ---------- shared rate limiting ----------
+function makeRateLimiter({ max, windowMs, keyFn }) {
+  const store = new Map();
+  return function limited(c) {
+    const key = keyFn(c);
+    const now = Date.now();
+    const entry = store.get(key) || { count: 0, since: now };
+    if (now - entry.since > windowMs) { entry.count = 0; entry.since = now; }
+    entry.count += 1;
+    store.set(key, entry);
+    return entry.count > max;
+  };
+}
+const clientIp = (c) => c.req.header("x-forwarded-for")?.split(",")[0].trim() || c.env?.incoming?.socket?.remoteAddress || "local";
+const otpIpLimiter = makeRateLimiter({ max: 20, windowMs: 60 * 60 * 1000, keyFn: clientIp });
+
 // ---------- player auth ----------
 async function currentPlayer(c) {
   const token = getCookie(c, PLAYER_COOKIE);
@@ -103,19 +119,25 @@ async function issuePlayerSession(c, playerId) {
   setCookie(c, PLAYER_COOKIE, token, { httpOnly: true, secure: isProd, sameSite: "Lax", path: "/", maxAge: PLAYER_SESSION_DAYS * 86400 });
 }
 
-const emailSchema = z.string().trim().toLowerCase().email("enter a valid email");
+const emailSchema = z.email("enter a valid email").trim().toLowerCase();
 const phoneSchema = z.string().trim().min(6, "enter a valid phone number").max(30);
 const levelSchema = z.enum(["beginner", "intermediate", "advanced"]);
 const nameSchema = z.string().trim().min(1, "enter your name").max(60);
 const purposeSchema = z.enum(["register", "login"]);
 
 app.post("/api/auth/request-otp", async (c) => {
+  if (otpIpLimiter(c)) return bad(c, "Too many requests from this network. Try again later.", 429);
   const { data, error } = await parseBody(c, z.object({ email: emailSchema, purpose: purposeSchema }));
   if (error) return bad(c, error);
+  const uniform = c.json({ ok: true, expiresInMinutes: OTP_TTL_MINUTES });
+
   const existing = (await query(`SELECT id, blocked FROM players WHERE email = $1`, [data.email])).rows[0];
-  if (data.purpose === "register" && existing) return bad(c, "An account with this email already exists. Sign in instead.", 409);
-  if (data.purpose === "login" && !existing) return bad(c, "No account found for that email. Register first.", 404);
-  if (existing?.blocked) return bad(c, "This account has been blocked. Contact an admin.", 403);
+  // Silent no-op if the purpose doesn't match the account state, or if the account is blocked.
+  // The uniform response avoids leaking whether the email is registered.
+  const validCase =
+    (data.purpose === "register" && !existing) ||
+    (data.purpose === "login" && existing && !existing.blocked);
+  if (!validCase) return uniform;
 
   const last = (await query(`SELECT created_at FROM otp_codes WHERE email = $1 AND purpose = $2`, [data.email, data.purpose])).rows[0];
   if (last) {
@@ -205,6 +227,26 @@ app.post("/api/auth/logout", async (c) => {
 app.get("/api/me", async (c) => {
   const player = await currentPlayer(c);
   return c.json({ player: player ? mapPlayer(player) : null });
+});
+
+app.patch("/api/me", async (c) => {
+  const player = await currentPlayer(c);
+  if (!player) return bad(c, "Please sign in.", 401);
+  const { data, error } = await parseBody(c, z.object({
+    name: nameSchema.optional(),
+    phone: phoneSchema.optional(),
+    level: levelSchema.optional(),
+  }));
+  if (error) return bad(c, error);
+  const columns = { name: "name", phone: "phone", level: "level" };
+  const sets = [], values = [];
+  for (const [k, col] of Object.entries(columns)) {
+    if (data[k] !== undefined) { values.push(data[k]); sets.push(`${col} = $${values.length}`); }
+  }
+  if (!sets.length) return bad(c, "Nothing to update.");
+  values.push(player.id);
+  const { rows } = await query(`UPDATE players SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING *`, values);
+  return c.json({ player: mapPlayer(rows[0]) });
 });
 
 // ---------- public API ----------
@@ -666,7 +708,7 @@ async function currentAdmin(c) {
   return rows[0] || null;
 }
 
-const credentials = z.object({ email: z.string().trim().toLowerCase().email("enter a valid email"), password: z.string().min(8, "use at least 8 characters").max(200) });
+const credentials = z.object({ email: z.email("enter a valid email").trim().toLowerCase(), password: z.string().min(8, "use at least 8 characters").max(200) });
 
 app.post("/api/admin/signup", async (c) => {
   const ip = c.req.header("x-forwarded-for") || "local";
@@ -1204,8 +1246,18 @@ app.delete("/api/admin/admins/:id", async (c) => {
 
 app.notFound((c) => (c.req.path.startsWith("/api/") ? bad(c, "Not found", 404) : c.text("Not found", 404)));
 app.onError((err, c) => {
-  console.error(err);
+  const ts = new Date().toISOString();
+  const ip = clientIp(c);
+  console.error(`[${ts}] ${c.req.method} ${c.req.path} from ${ip} →`, err?.stack || err);
   return bad(c, "Something went wrong on our side. Please try again.", 500);
+});
+
+// Last-resort catchers so a bad promise doesn't crash the server silently.
+process.on("unhandledRejection", (reason) => {
+  console.error(`[${new Date().toISOString()}] unhandledRejection:`, reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error(`[${new Date().toISOString()}] uncaughtException:`, err?.stack || err);
 });
 
 // ---------- SEO + static frontend ----------

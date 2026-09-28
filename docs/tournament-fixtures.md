@@ -354,14 +354,28 @@ sanity-check our data model and UI choices.
 
 ## 14. Data lifecycle
 
-- Matches and groups are cascaded on tournament / category delete (already
-  set up via `ON DELETE CASCADE`).
-- The 14-day retention job (`cleanupOldRecords`) does **not** touch
-  tournaments — tournaments are historical records worth keeping. If we want
-  to trim them eventually, that's a separate admin action.
-- Player deletion (`DELETE /admin/players/:id`) cascades through
-  registrations and thence through matches (winner/entry references go NULL
-  via `SET NULL`, keeping historical scoresheets intact).
+`cleanupOldRecords` runs on boot and every hour. Current retention thresholds:
+
+| Table                              | Rule                                                            |
+| ---------------------------------- | --------------------------------------------------------------- |
+| `sessions` (+ registrations, guests) | drop when `date < today − 14`                                  |
+| `tournaments` (+ categories, registrations, groups, matches) | drop when `starts_on < today − 90` |
+| `admin_sessions` / `player_sessions` | drop past `expires_at`                                         |
+| `otp_codes`                        | drop past `expires_at` (also cleaned inline on verify / attempts exhausted) |
+| `players` (inactive)               | drop when created > 12 months ago, no session in 12 months, and no registration or tournament entry references |
+
+Notes:
+
+- Every deletion cascades. Categories, groups, matches, entries all disappear
+  when the parent tournament is dropped — nothing dangles.
+- If you want to keep a specific tournament longer than 90 days, bump its
+  `starts_on` forward or add an "archived" flag later.
+- Admin-initiated player deletion (`DELETE /admin/players/:id`) still works
+  anytime; the automatic 12-month sweep is only for players who never came
+  back after signing up.
+- Two admin endpoints ship alongside: `GET /api/admin/storage` returns row
+  counts + DB size in bytes, and `POST /api/admin/storage/cleanup` runs the
+  sweep on demand.
 
 ## 15. Estimated implementation size
 

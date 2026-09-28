@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster } from "sonner";
 import "./styles.css";
 import { AppShell } from "@/components/app-shell";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { AdminProvider } from "@/lib/admin";
 import { PlayerProvider } from "@/lib/player";
 import Home from "@/pages/home";
@@ -12,6 +13,7 @@ import AdminLogin, { RequireAdmin } from "@/pages/admin/login";
 import { Spinner } from "@/components/ui/field";
 
 const Tournament = lazy(() => import("@/pages/tournament"));
+const Profile = lazy(() => import("@/pages/profile"));
 const AdminPolls = lazy(() => import("@/pages/admin/polls"));
 const AdminCheckin = lazy(() => import("@/pages/admin/checkin"));
 const AdminRecords = lazy(() => import("@/pages/admin/records"));
@@ -21,6 +23,7 @@ const loading = <div className="grid min-h-[50vh] place-items-center text-muted-
 
 function App() {
   return (
+    <ErrorBoundary>
     <BrowserRouter>
       <AdminProvider>
         <PlayerProvider>
@@ -30,6 +33,7 @@ function App() {
               <Route path="/" element={<Home />} />
               <Route path="/my-sessions" element={<MySessions />} />
               <Route path="/tournament" element={<Tournament />} />
+              <Route path="/profile" element={<Profile />} />
               <Route path="/admin/login" element={<AdminLogin />} />
               <Route path="/admin" element={<Navigate to="/admin/polls" replace />} />
               <Route path="/admin/polls" element={<RequireAdmin><AdminPolls /></RequireAdmin>} />
@@ -45,6 +49,7 @@ function App() {
         </PlayerProvider>
       </AdminProvider>
     </BrowserRouter>
+    </ErrorBoundary>
   );
 }
 

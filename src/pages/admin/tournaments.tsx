@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarDays, ChevronDown, Layers3, MapPin, Pencil, Plus, Trash2, Trophy, Users2 } from "lucide-react";
+import { CalendarDays, ChevronDown, Layers3, MapPin, Megaphone, Pencil, Plus, Trash2, Trophy, Users2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Eyebrow, Field, Spinner } from "@/components/ui/field";
@@ -197,7 +197,7 @@ function TournamentCard({ summary, isOpen, onToggle, onChanged, onDelete }: {
   }, [regs]);
 
   return (
-    <div className="glass-panel overflow-hidden rounded-2xl">
+    <div className={cn("glass-panel overflow-hidden rounded-2xl", summary.status === "draft" && "ring-1 ring-amber/30")}>
       <button onClick={onToggle} className="flex w-full items-center justify-between gap-4 p-4 text-left sm:p-5">
         <div className="flex min-w-0 items-center gap-4">
           <div className="grid size-12 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
@@ -213,10 +213,25 @@ function TournamentCard({ summary, isOpen, onToggle, onChanged, onDelete }: {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-3">
+          {summary.status === "draft" && (
+            <Button
+              variant="neon"
+              size="sm"
+              onClick={(e) => { e.stopPropagation(); void setStatus("open"); }}
+            >
+              <Megaphone size={13} /> Publish
+            </Button>
+          )}
           <span className={cn("rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider", STATUS_TONE[summary.status])}>{summary.status}</span>
           <ChevronDown size={18} className={cn("text-muted-foreground transition", isOpen && "rotate-180")} />
         </div>
       </button>
+
+      {summary.status === "draft" && !isOpen && (
+        <p className="border-t border-border bg-amber/[.06] px-4 py-2.5 text-xs text-amber sm:px-5">
+          This tournament is a draft — players can't see or register for it until you publish.
+        </p>
+      )}
 
       <AnimatePresence initial={false}>
         {isOpen && (
