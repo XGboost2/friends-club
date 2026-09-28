@@ -17,7 +17,15 @@ export type Session = {
   me?: { multisport: boolean; status: "pending" | "paid"; guests: string[]; isMine: boolean; canLeave: boolean } | null;
 };
 
-export type Guest = { id: number; name: string; status: "pending" | "paid" };
+export type Guest = {
+  id: number;
+  name: string;
+  status: "pending" | "paid";
+  multisport: boolean;
+  cardNumber: string | null;
+  holderName: string | null;
+  paidMethod: "scan" | "manual" | null;
+};
 export type Registration = {
   id: number;
   name: string;

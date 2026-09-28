@@ -9,12 +9,24 @@ import { api, type Session } from "@/lib/api";
 import { loadCardPrefs, saveCardPrefs, usePlayer } from "@/lib/player";
 import { fmt } from "@/lib/utils";
 
+type GuestForm = {
+  name: string;
+  usesMultisport: boolean;
+  cardNumber: string;
+  holderName: string;
+};
+
+function defaultGuestName(playerName: string, index: number) {
+  const first = playerName.trim().split(/\s+/)[0] || "Player";
+  return `${first}'s guest ${index + 1}`;
+}
+
 export function JoinSheet({ session, onClose, onJoined }: { session: Session | null; onClose: () => void; onJoined: (session: Session, guests: string[], multisport: boolean) => void }) {
   const { player } = usePlayer();
   const [multisport, setMultisport] = useState(true);
   const [cardNumber, setCardNumber] = useState("");
   const [holderName, setHolderName] = useState("");
-  const [guests, setGuests] = useState<string[]>([]);
+  const [guests, setGuests] = useState<GuestForm[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -31,19 +43,53 @@ export function JoinSheet({ session, onClose, onJoined }: { session: Session | n
   const spotsLeft = Math.max(0, session.capacity - session.total);
   const maxGuests = Math.min(10, Math.max(0, spotsLeft - 1));
 
+  function updateGuest(index: number, patch: Partial<GuestForm>) {
+    setGuests((list) => list.map((g, i) => (i === index ? { ...g, ...patch } : g)));
+  }
+
+  function addGuest() {
+    setGuests((list) => [
+      ...list,
+      { name: defaultGuestName(player!.name, list.length), usesMultisport: false, cardNumber: "", holderName: "" },
+    ]);
+  }
+
+  function removeGuest() {
+    setGuests((list) => list.slice(0, -1));
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!session || !player) return;
     if (multisport && cardNumber.replace(/[^a-z0-9]/gi, "").length < 6) return toast.error("Enter your full Multisport card number.");
     if (multisport && !holderName.trim()) return toast.error("Enter the name on the Multisport card.");
-    const guestNames = guests.map((g, i) => g.trim() || `${player.name.trim()}'s guest ${i + 1}`);
+    const cleanGuests = guests.map((g, i) => ({
+      name: g.name.trim() || defaultGuestName(player.name, i),
+      usesMultisport: g.usesMultisport,
+      cardNumber: g.usesMultisport ? g.cardNumber.trim() : null,
+      holderName: g.usesMultisport ? (g.holderName.trim() || g.name.trim() || defaultGuestName(player.name, i)) : null,
+    }));
+    for (const g of cleanGuests) {
+      if (g.usesMultisport && (!g.cardNumber || g.cardNumber.replace(/[^a-z0-9]/gi, "").length < 6)) {
+        return toast.error(`Enter a full Multisport card number for ${g.name}.`);
+      }
+    }
     setBusy(true);
     try {
       const res = await api<{ session: Session }>(`/api/sessions/${session.id}/join`, {
-        body: { usesMultisport: multisport, cardNumber: multisport ? cardNumber : null, holderName: multisport ? holderName.trim() : null, guests: guestNames },
+        body: {
+          usesMultisport: multisport,
+          cardNumber: multisport ? cardNumber : null,
+          holderName: multisport ? holderName.trim() : null,
+          guests: cleanGuests,
+        },
       });
-      saveCardPrefs({ usesMultisport: multisport, cardNumber: multisport ? cardNumber.trim() : loadCardPrefs().cardNumber, holderName: multisport ? holderName.trim() : loadCardPrefs().holderName });
-      onJoined(res.session, guestNames, multisport);
+      saveCardPrefs({
+        usesMultisport: multisport,
+        cardNumber: multisport ? cardNumber.trim() : loadCardPrefs().cardNumber,
+        holderName: multisport ? holderName.trim() : loadCardPrefs().holderName,
+      });
+      onJoined(res.session, cleanGuests.map((g) => g.name), multisport);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't join. Try again.");
     } finally {
@@ -112,13 +158,13 @@ export function JoinSheet({ session, onClose, onJoined }: { session: Session | n
               </div>
             </div>
             <div className="flex items-center gap-1 rounded-xl border border-border bg-soft p-1">
-              <button type="button" aria-label="Remove guest" disabled={!guests.length} onClick={() => setGuests((g) => g.slice(0, -1))} className="grid size-9 place-items-center rounded-lg transition hover:bg-secondary disabled:opacity-30">
+              <button type="button" aria-label="Remove guest" disabled={!guests.length} onClick={removeGuest} className="grid size-9 place-items-center rounded-lg transition hover:bg-secondary disabled:opacity-30">
                 <Minus size={16} />
               </button>
               <motion.span key={guests.length} initial={{ scale: 1.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-7 text-center font-display text-lg font-bold">
                 {guests.length}
               </motion.span>
-              <button type="button" aria-label="Add guest" disabled={guests.length >= maxGuests} onClick={() => setGuests((g) => [...g, ""])} className="grid size-9 place-items-center rounded-lg transition hover:bg-secondary disabled:opacity-30">
+              <button type="button" aria-label="Add guest" disabled={guests.length >= maxGuests} onClick={addGuest} className="grid size-9 place-items-center rounded-lg transition hover:bg-secondary disabled:opacity-30">
                 <Plus size={16} />
               </button>
             </div>
@@ -126,7 +172,46 @@ export function JoinSheet({ session, onClose, onJoined }: { session: Session | n
           <AnimatePresence initial={false}>
             {guests.map((guest, i) => (
               <motion.div key={i} initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                <input className="field mt-3" value={guest} onChange={(e) => setGuests((g) => g.map((v, j) => (j === i ? e.target.value : v)))} placeholder={`Guest ${i + 1} name`} maxLength={60} />
+                <div className={`mt-3 rounded-2xl border p-3 transition-colors ${guest.usesMultisport ? "border-primary/35 bg-primary/[.05]" : "border-border bg-soft"}`}>
+                  <input
+                    className="field"
+                    value={guest.name}
+                    onChange={(e) => updateGuest(i, { name: e.target.value })}
+                    placeholder={defaultGuestName(player.name, i)}
+                    maxLength={60}
+                  />
+                  <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-background/40 px-3 py-2">
+                    <div className="flex items-center gap-2 text-xs">
+                      <CreditCard size={14} className={guest.usesMultisport ? "text-primary" : "text-muted-foreground"} />
+                      <span className={guest.usesMultisport ? "font-semibold text-foreground" : "text-muted-foreground"}>
+                        {guest.usesMultisport ? "Multisport" : "Pays at venue"}
+                      </span>
+                    </div>
+                    <Toggle checked={guest.usesMultisport} onChange={(v) => updateGuest(i, { usesMultisport: v, holderName: guest.holderName || guest.name })} label={`Guest ${i + 1} Multisport`} />
+                  </div>
+                  <AnimatePresence initial={false}>
+                    {guest.usesMultisport && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                        <div className="grid gap-3 pt-3 sm:grid-cols-2">
+                          <input
+                            className="field font-mono tracking-wider sm:col-span-2"
+                            value={guest.cardNumber}
+                            onChange={(e) => updateGuest(i, { cardNumber: e.target.value })}
+                            placeholder="Guest's card number"
+                            maxLength={40}
+                          />
+                          <input
+                            className="field sm:col-span-2"
+                            value={guest.holderName}
+                            onChange={(e) => updateGuest(i, { holderName: e.target.value })}
+                            placeholder="Name on guest's card"
+                            maxLength={80}
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </motion.div>
             ))}
           </AnimatePresence>

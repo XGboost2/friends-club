@@ -18,6 +18,7 @@ const PLAYER_COOKIE = "fc_player";
 const SESSION_DAYS = 30;
 const PLAYER_SESSION_DAYS = 90;
 const CANCEL_LOCK_HOURS = 25;
+const AUTO_CLOSE_HOURS = 24;
 const OTP_TTL_MINUTES = 10;
 const OTP_MAX_ATTEMPTS = 5;
 const OTP_RESEND_COOLDOWN_SECONDS = 30;
@@ -62,6 +63,15 @@ function mapSession(row) {
 
 function mapPlayer(row) {
   return { id: row.id, email: row.email, phone: row.phone, name: row.name, level: row.level, blocked: row.blocked, createdAt: row.created_at };
+}
+
+/** Close voting for any session starting within AUTO_CLOSE_HOURS. Safe to call frequently. */
+async function autoClosePolls() {
+  await query(
+    `UPDATE sessions SET status = 'closed'
+     WHERE status = 'open'
+       AND ((date::text || ' ' || start_time)::timestamp AT TIME ZONE '${CLUB_TZ}') <= now() + interval '${AUTO_CLOSE_HOURS} hours'`,
+  );
 }
 
 const SESSION_STATS_SQL = `
@@ -201,6 +211,7 @@ app.get("/api/me", async (c) => {
 app.get("/api/health", (c) => c.json({ ok: true }));
 
 app.get("/api/sessions", async (c) => {
+  await autoClosePolls();
   const { rows } = await query(`${SESSION_STATS_SQL} WHERE s.date >= current_date ORDER BY s.date, s.start_time`);
   const today = (await query(`SELECT current_date AS d`)).rows[0].d;
   return c.json({ today, sessions: rows.map(mapSession) });
@@ -210,18 +221,26 @@ app.get("/api/sessions/:id/attendees", async (c) => {
   const id = Number(c.req.param("id"));
   const { rows } = await query(
     `SELECT r.player_name, r.uses_multisport,
-       COALESCE((SELECT json_agg(g.name ORDER BY g.id) FROM guests g WHERE g.registration_id = r.id), '[]'::json) AS guests
+       COALESCE((SELECT json_agg(json_build_object('name', g.name, 'multisport', g.uses_multisport) ORDER BY g.id)
+          FROM guests g WHERE g.registration_id = r.id), '[]'::json) AS guests
      FROM registrations r WHERE r.session_id = $1 ORDER BY r.created_at`,
     [id],
   );
   return c.json({ attendees: rows.map((r) => ({ name: r.player_name, multisport: r.uses_multisport, guests: r.guests })) });
 });
 
+const guestSchema = z.object({
+  name: z.string().trim().min(1, "guest name required").max(60),
+  usesMultisport: z.boolean().default(false),
+  cardNumber: z.string().trim().max(40).optional().nullable(),
+  holderName: z.string().trim().max(80).optional().nullable(),
+});
+
 const joinSchema = z.object({
   usesMultisport: z.boolean(),
   cardNumber: z.string().trim().max(40).optional().nullable(),
   holderName: z.string().trim().max(80).optional().nullable(),
-  guests: z.array(z.string().trim().min(1).max(60)).max(10).default([]),
+  guests: z.array(guestSchema).max(10).default([]),
 });
 
 app.post("/api/sessions/:id/join", async (c) => {
@@ -234,18 +253,58 @@ app.post("/api/sessions/:id/join", async (c) => {
     if (cardKey(data.cardNumber).length < 6) return bad(c, "Enter your Multisport card number (at least 6 characters).");
     if (!data.holderName) return bad(c, "Enter the name on the Multisport card.");
   }
+  for (const g of data.guests) {
+    if (g.usesMultisport) {
+      if (cardKey(g.cardNumber).length < 6) return bad(c, `Enter a Multisport card number for guest "${g.name}" (at least 6 characters).`);
+      if (!g.holderName) return bad(c, `Enter the name on the Multisport card for guest "${g.name}".`);
+    }
+  }
+  // Detect duplicate cards inside the same submission (player + guests + between guests).
+  const submittedCards = new Set();
+  const addCard = (key) => {
+    if (!key) return true;
+    if (submittedCards.has(key)) return false;
+    submittedCards.add(key);
+    return true;
+  };
+  if (data.usesMultisport && !addCard(cardKey(data.cardNumber))) return bad(c, "The same Multisport card can't be used twice in one booking.");
+  for (const g of data.guests) {
+    if (g.usesMultisport && !addCard(cardKey(g.cardNumber))) return bad(c, `The same Multisport card can't be used twice in one booking.`);
+  }
   try {
     const result = await tx(async (client) => {
       const s = (await client.query(`SELECT * FROM sessions WHERE id = $1 FOR UPDATE`, [id])).rows[0];
       if (!s) return { status: 404, error: "This session no longer exists." };
       if (s.status !== "open") return { status: 409, error: "Voting for this session is closed." };
-      const past = (await client.query(`SELECT $1::date < current_date AS past`, [s.date])).rows[0].past;
-      if (past) return { status: 409, error: "This session is in the past." };
+      const timing = (await client.query(
+        `SELECT $1::date < current_date AS past,
+                ((($1::text || ' ' || $2::text)::timestamp AT TIME ZONE $3) <= now() + interval '${AUTO_CLOSE_HOURS} hours') AS closing_soon`,
+        [s.date, s.start_time, CLUB_TZ],
+      )).rows[0];
+      if (timing.past) return { status: 409, error: "This session is in the past." };
+      if (timing.closing_soon) {
+        // Race: someone joined between auto-close sweeps. Persist the close and reject.
+        await client.query(`UPDATE sessions SET status = 'closed' WHERE id = $1`, [id]);
+        return { status: 409, error: `Voting closes ${AUTO_CLOSE_HOURS} hours before the session.` };
+      }
       const existing = (await client.query(`SELECT id FROM registrations WHERE session_id = $1 AND player_id = $2`, [id, player.id])).rows[0];
       if (existing) return { status: 409, error: "You're already in this session." };
-      if (data.usesMultisport) {
-        const sameCard = (await client.query(`SELECT 1 FROM registrations WHERE session_id = $1 AND card_key = $2`, [id, cardKey(data.cardNumber)])).rows[0];
-        if (sameCard) return { status: 409, error: "This Multisport card is already registered for this session." };
+      // Card collision check: block if any card in this booking is already booked for this session.
+      const cardsToCheck = [];
+      if (data.usesMultisport) cardsToCheck.push(cardKey(data.cardNumber));
+      for (const g of data.guests) if (g.usesMultisport) cardsToCheck.push(cardKey(g.cardNumber));
+      if (cardsToCheck.length) {
+        const clash = (await client.query(
+          `SELECT 1
+             FROM registrations r
+             WHERE r.session_id = $1 AND r.card_key = ANY($2::text[])
+           UNION ALL
+           SELECT 1
+             FROM guests g JOIN registrations r ON r.id = g.registration_id
+             WHERE r.session_id = $1 AND g.card_key = ANY($2::text[])`,
+          [id, cardsToCheck],
+        )).rows[0];
+        if (clash) return { status: 409, error: "A Multisport card in this booking is already registered for this session." };
       }
       const counts = (await client.query(
         `SELECT (SELECT count(*) FROM registrations WHERE session_id = $1) +
@@ -266,7 +325,14 @@ app.post("/api/sessions/:id/join", async (c) => {
           data.usesMultisport ? data.holderName : null],
       )).rows[0];
       for (const guest of data.guests) {
-        await client.query(`INSERT INTO guests (registration_id, name) VALUES ($1, $2)`, [reg.id, guest]);
+        await client.query(
+          `INSERT INTO guests (registration_id, name, uses_multisport, card_number, card_key, holder_name)
+           VALUES ($1,$2,$3,$4,$5,$6)`,
+          [reg.id, guest.name, guest.usesMultisport,
+            guest.usesMultisport ? guest.cardNumber.trim() : null,
+            guest.usesMultisport ? cardKey(guest.cardNumber) : null,
+            guest.usesMultisport ? guest.holderName : null],
+        );
       }
       return { ok: true };
     });
@@ -423,6 +489,7 @@ app.use("/api/admin/*", async (c, next) => {
 // ---------- admin: polls ----------
 app.get("/api/admin/sessions", async (c) => {
   cleanupOldRecords().catch(() => {});
+  await autoClosePolls();
   const { rows } = await query(
     `SELECT x.*,
        (SELECT count(*) FROM registrations r WHERE r.session_id = x.id AND r.uses_multisport) AS multisport_count
@@ -500,7 +567,11 @@ async function sessionDetail(id) {
   const session = (await query(`${SESSION_STATS_SQL} WHERE s.id = $1`, [id])).rows[0];
   if (!session) return null;
   const { rows } = await query(
-    `SELECT r.*, COALESCE((SELECT json_agg(json_build_object('id', g.id, 'name', g.name, 'status', g.status) ORDER BY g.id)
+    `SELECT r.*, COALESCE((SELECT json_agg(json_build_object(
+        'id', g.id, 'name', g.name, 'status', g.status,
+        'multisport', g.uses_multisport, 'cardNumber', g.card_number, 'holderName', g.holder_name,
+        'paidMethod', g.paid_method
+      ) ORDER BY g.id)
         FROM guests g WHERE g.registration_id = r.id), '[]'::json) AS guests
      FROM registrations r WHERE r.session_id = $1 ORDER BY r.player_name`,
     [id],
@@ -541,7 +612,12 @@ app.post("/api/admin/checkin/scan", async (c) => {
   const scanned = cardKey(data.code);
   if (scanned.length < 4) return c.json({ result: "unknown", code: data.code });
   const { rows } = await query(
-    `SELECT id, player_name, card_key, status FROM registrations WHERE session_id = $1 AND uses_multisport AND card_key IS NOT NULL`,
+    `SELECT 'registration' AS kind, id, player_name AS name, card_key, status FROM registrations
+       WHERE session_id = $1 AND uses_multisport AND card_key IS NOT NULL
+     UNION ALL
+     SELECT 'guest' AS kind, g.id, g.name, g.card_key, g.status FROM guests g
+       JOIN registrations r ON r.id = g.registration_id
+       WHERE r.session_id = $1 AND g.uses_multisport AND g.card_key IS NOT NULL`,
     [data.sessionId],
   );
   // Exact match first, then tolerate prefixes/suffixes that card barcodes sometimes add.
@@ -551,9 +627,10 @@ app.post("/api/admin/checkin/scan", async (c) => {
     if (partial.length === 1) match = partial[0];
   }
   if (!match) return c.json({ result: "unknown", code: data.code });
-  if (match.status === "paid") return c.json({ result: "already", name: match.player_name, registrationId: match.id });
-  await query(`UPDATE registrations SET status = 'paid', paid_at = now(), paid_method = 'scan' WHERE id = $1`, [match.id]);
-  return c.json({ result: "paid", name: match.player_name, registrationId: match.id });
+  if (match.status === "paid") return c.json({ result: "already", name: match.name, kind: match.kind, id: match.id });
+  const table = match.kind === "guest" ? "guests" : "registrations";
+  await query(`UPDATE ${table} SET status = 'paid', paid_at = now(), paid_method = 'scan' WHERE id = $1`, [match.id]);
+  return c.json({ result: "paid", name: match.name, kind: match.kind, id: match.id });
 });
 
 app.patch("/api/admin/registrations/:id", async (c) => {
@@ -706,7 +783,9 @@ if (existsSync("./dist/index.html")) {
 // ---------- boot ----------
 await migrate();
 await cleanupOldRecords();
+await autoClosePolls();
 setInterval(() => cleanupOldRecords().catch((e) => console.error("cleanup failed", e)), 60 * 60 * 1000);
+setInterval(() => autoClosePolls().catch((e) => console.error("auto-close failed", e)), 5 * 60 * 1000);
 
 const port = Number(process.env.PORT || 3000);
 serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, () => console.log(`Friends Club running on :${port}`));

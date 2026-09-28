@@ -5,7 +5,8 @@ import { Avatar, Spinner } from "@/components/ui/field";
 import { api, type Session } from "@/lib/api";
 import { fmt } from "@/lib/utils";
 
-type Attendee = { name: string; multisport: boolean; guests: string[] };
+type AttendeeGuest = { name: string; multisport: boolean };
+type Attendee = { name: string; multisport: boolean; guests: AttendeeGuest[] };
 
 export function AttendeesSheet({ session, onClose }: { session: Session | null; onClose: () => void }) {
   const [attendees, setAttendees] = useState<Attendee[] | null>(null);
@@ -27,26 +28,37 @@ export function AttendeesSheet({ session, onClose }: { session: Session | null; 
         )}
         {attendees?.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">No one yet — be the first to join!</p>}
         {attendees?.map((a, i) => (
-          <div key={i} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-soft px-3 py-2.5">
-            <div className="flex min-w-0 items-center gap-3">
-              <Avatar name={a.name} index={i} className="size-9 border-0" />
-              <div className="min-w-0">
-                <p className="truncate font-medium">{a.name}</p>
-                {a.guests.length > 0 && (
-                  <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
-                    <UserPlus size={12} /> {a.guests.join(", ")}
-                  </p>
-                )}
+          <div key={i} className="rounded-xl border border-border bg-soft px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <Avatar name={a.name} index={i} className="size-9 border-0" />
+                <p className="min-w-0 truncate font-medium">{a.name}</p>
               </div>
+              {a.multisport && <MultisportPill />}
             </div>
-            {a.multisport && (
-              <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-primary">
-                <CreditCard size={11} /> Multisport
-              </span>
+            {a.guests.length > 0 && (
+              <ul className="mt-2 space-y-1 border-t border-border pt-2">
+                {a.guests.map((g, gi) => (
+                  <li key={gi} className="flex items-center justify-between gap-3 text-xs">
+                    <span className="flex min-w-0 items-center gap-2 truncate text-muted-foreground">
+                      <UserPlus size={12} className="shrink-0" /> {g.name}
+                    </span>
+                    {g.multisport && <MultisportPill compact />}
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         ))}
       </div>
     </Sheet>
+  );
+}
+
+function MultisportPill({ compact = false }: { compact?: boolean }) {
+  return (
+    <span className={`flex shrink-0 items-center gap-1 rounded-full bg-primary/10 font-bold uppercase tracking-wider text-primary ${compact ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-1 text-[10px]"}`}>
+      <CreditCard size={compact ? 9 : 11} /> Multisport
+    </span>
   );
 }

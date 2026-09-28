@@ -30,7 +30,9 @@ export default function AdminRecords() {
       sessions: sessions?.length ?? 0,
       players: regs.length + guests.length,
       paid: regs.filter((r) => r.status === "paid").length + guests.filter((g) => g.status === "paid").length,
-      pendingMs: regs.filter((r) => r.multisport && r.status === "pending").length,
+      pendingMs:
+        regs.filter((r) => r.multisport && r.status === "pending").length +
+        guests.filter((g) => g.multisport && g.status === "pending").length,
     };
   }, [sessions]);
 
@@ -87,8 +89,17 @@ export default function AdminRecords() {
         {sessions?.map((s) => {
           const rows = s.registrations
             .flatMap((r) => [
-              { key: `r${r.id}`, name: r.name, kind: r.multisport ? "Multisport" : "Pays at venue", detail: r.multisport ? `${r.holderName ?? ""} · ${maskCard(r.cardNumber)}` : "", status: r.status, how: r.paidMethod, guest: false },
-              ...r.guests.map((g) => ({ key: `g${g.id}`, name: g.name, kind: `Guest of ${r.name}`, detail: "", status: g.status, how: null as string | null, guest: true })),
+              { key: `r${r.id}`, name: r.name, kind: r.multisport ? "Multisport" : "Pays at venue", detail: r.multisport ? `${r.holderName ?? ""} · ${maskCard(r.cardNumber)}` : "", status: r.status, how: r.paidMethod, guest: false, multisport: r.multisport },
+              ...r.guests.map((g) => ({
+                key: `g${g.id}`,
+                name: g.name,
+                kind: g.multisport ? `Guest of ${r.name} · Multisport` : `Guest of ${r.name}`,
+                detail: g.multisport ? `${g.holderName ?? ""} · ${maskCard(g.cardNumber)}` : "",
+                status: g.status,
+                how: g.paidMethod as string | null,
+                guest: true,
+                multisport: g.multisport,
+              })),
             ])
             .filter((row) => (filter === "all" || row.status === filter) && (!q || row.name.toLowerCase().includes(q) || row.kind.toLowerCase().includes(q)));
           const paid = s.registrations.filter((r) => r.status === "paid").length + s.registrations.flatMap((r) => r.guests).filter((g) => g.status === "paid").length;
@@ -127,8 +138,8 @@ export default function AdminRecords() {
                       {rows.map((row) => (
                         <div key={row.key} className="flex items-center justify-between gap-3 px-2 py-2.5">
                           <div className="flex min-w-0 items-center gap-3">
-                            <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg", row.guest ? "bg-violet/15 text-violet" : row.kind === "Multisport" ? "bg-primary/10 text-primary" : "bg-cyan/10 text-cyan")}>
-                              {row.guest ? <UserPlus size={14} /> : row.kind === "Multisport" ? <CreditCard size={14} /> : <Wallet size={14} />}
+                            <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg", row.guest ? (row.multisport ? "bg-violet/25 text-violet" : "bg-violet/15 text-violet") : row.multisport ? "bg-primary/10 text-primary" : "bg-cyan/10 text-cyan")}>
+                              {row.guest ? <UserPlus size={14} /> : row.multisport ? <CreditCard size={14} /> : <Wallet size={14} />}
                             </span>
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium">{row.name}</p>

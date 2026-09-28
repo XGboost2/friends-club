@@ -134,11 +134,33 @@ export default function AdminCheckin() {
   }
 
   const regs = detail?.registrations ?? [];
-  const pending = regs.filter((r) => r.multisport && r.status === "pending");
-  const paid = regs.filter((r) => r.multisport && r.status === "paid");
+  type MsRow = {
+    kind: "registrations" | "guests";
+    id: number;
+    name: string;
+    status: "pending" | "paid";
+    cardNumber: string | null;
+    holderName: string | null;
+    paidAt: string | null;
+    paidMethod: "scan" | "manual" | null;
+    guestOf?: string;
+  };
+  const msPeople: MsRow[] = [
+    ...regs.filter((r) => r.multisport).map((r) => ({
+      kind: "registrations" as const, id: r.id, name: r.name, status: r.status,
+      cardNumber: r.cardNumber, holderName: r.holderName, paidAt: r.paidAt, paidMethod: r.paidMethod,
+    })),
+    ...regs.flatMap((r) => r.guests.filter((g) => g.multisport).map((g) => ({
+      kind: "guests" as const, id: g.id, name: g.name, status: g.status,
+      cardNumber: g.cardNumber, holderName: g.holderName, paidAt: null, paidMethod: g.paidMethod,
+      guestOf: r.name,
+    }))),
+  ];
+  const pending = msPeople.filter((p) => p.status === "pending");
+  const paid = msPeople.filter((p) => p.status === "paid");
   const others = [
     ...regs.filter((r) => !r.multisport).map((r) => ({ kind: "registrations" as const, id: r.id, name: r.name, status: r.status, sub: "Player · paying at venue" })),
-    ...regs.flatMap((r) => r.guests.map((g) => ({ kind: "guests" as const, id: g.id, name: g.name, status: g.status, sub: `Guest of ${r.name}` }))),
+    ...regs.flatMap((r) => r.guests.filter((g) => !g.multisport).map((g) => ({ kind: "guests" as const, id: g.id, name: g.name, status: g.status, sub: `Guest of ${r.name} · paying at venue` }))),
   ];
   const othersPaid = others.filter((o) => o.status === "paid").length;
   const selected = sessions?.find((s) => s.id === sessionId);
@@ -249,8 +271,8 @@ export default function AdminCheckin() {
                     <Spinner />
                   </div>
                 )}
-                {detail && tab === "pending" && (pending.length ? pending.map((r) => <Row key={r.id} name={r.name} sub={`${r.holderName ?? ""} · ${maskCard(r.cardNumber)}`} status="pending" icon={<CreditCard size={15} />} onToggle={() => mark("registrations", r.id, "paid")} onRemove={() => remove("registrations", r.id, r.name)} />) : <Empty text="Everyone with Multisport has scanned in. 🎉" />)}
-                {detail && tab === "paid" && (paid.length ? paid.map((r) => <Row key={r.id} name={r.name} sub={`${r.paidMethod === "scan" ? "Scanned" : "Marked"} ${r.paidAt ? new Date(r.paidAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}`} status="paid" icon={<CreditCard size={15} />} onToggle={() => mark("registrations", r.id, "pending")} onRemove={() => remove("registrations", r.id, r.name)} />) : <Empty text="No one has checked in yet." />)}
+                {detail && tab === "pending" && (pending.length ? pending.map((r) => <Row key={`${r.kind}-${r.id}`} name={r.name} sub={`${r.guestOf ? `Guest of ${r.guestOf} · ` : ""}${r.holderName ?? ""}${r.cardNumber ? ` · ${maskCard(r.cardNumber)}` : ""}`} status="pending" icon={<CreditCard size={15} />} onToggle={() => mark(r.kind, r.id, "paid")} onRemove={() => remove(r.kind, r.id, r.name)} />) : <Empty text="Everyone with Multisport has scanned in. 🎉" />)}
+                {detail && tab === "paid" && (paid.length ? paid.map((r) => <Row key={`${r.kind}-${r.id}`} name={r.name} sub={`${r.guestOf ? `Guest of ${r.guestOf} · ` : ""}${r.paidMethod === "scan" ? "Scanned" : "Marked"} ${r.paidAt ? new Date(r.paidAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}`} status="paid" icon={<CreditCard size={15} />} onToggle={() => mark(r.kind, r.id, "pending")} onRemove={() => remove(r.kind, r.id, r.name)} />) : <Empty text="No one has checked in yet." />)}
                 {detail && tab === "other" && (others.length ? others.map((o) => <Row key={`${o.kind}-${o.id}`} name={o.name} sub={o.sub} status={o.status} icon={o.kind === "guests" ? <UserPlus size={15} /> : <Wallet size={15} />} onToggle={() => mark(o.kind, o.id, o.status === "paid" ? "pending" : "paid")} onRemove={() => remove(o.kind, o.id, o.name)} />) : <Empty text="No guests or non-Multisport players." />)}
               </div>
               <p className="flex items-center justify-between px-3 pb-2 pt-1 text-[11px] text-muted-foreground">

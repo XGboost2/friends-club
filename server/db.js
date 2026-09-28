@@ -131,8 +131,20 @@ export async function migrate() {
       registration_id INTEGER NOT NULL REFERENCES registrations(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','paid')),
-      paid_at TIMESTAMPTZ
+      paid_at TIMESTAMPTZ,
+      uses_multisport BOOLEAN NOT NULL DEFAULT FALSE,
+      card_number TEXT,
+      card_key TEXT,
+      holder_name TEXT,
+      paid_method TEXT
     );
+
+    -- Idempotent add for pre-existing guests tables (post-players rollout upgrades).
+    ALTER TABLE guests ADD COLUMN IF NOT EXISTS uses_multisport BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE guests ADD COLUMN IF NOT EXISTS card_number TEXT;
+    ALTER TABLE guests ADD COLUMN IF NOT EXISTS card_key TEXT;
+    ALTER TABLE guests ADD COLUMN IF NOT EXISTS holder_name TEXT;
+    ALTER TABLE guests ADD COLUMN IF NOT EXISTS paid_method TEXT;
   `);
 }
 
