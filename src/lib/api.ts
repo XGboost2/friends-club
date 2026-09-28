@@ -53,7 +53,10 @@ export type Player = {
 };
 export type AdminPlayer = Player & { sessionCount: number; lastActive: string | null };
 
-export type TournamentFormat = "singles" | "doubles" | "mixed";
+export type TournamentFormat = "mens_singles" | "womens_singles" | "mens_doubles" | "womens_doubles" | "mixed";
+export type TournamentStructure = "group" | "ko" | "group_ko";
+export type TournamentMatchStage = "group" | "r32" | "r16" | "quarter" | "semi" | "final";
+export type TournamentMatchStatus = "pending" | "reported" | "confirmed";
 export type TournamentStatus = "draft" | "open" | "closed" | "completed";
 export type TournamentCategory = {
   id: number;
@@ -62,6 +65,58 @@ export type TournamentCategory = {
   isOpen: boolean;
   maxEntries: number | null;
   entryCount: number;
+  structure: TournamentStructure;
+  groupSize: number;
+  advanceCount: number;
+  hasFixtures?: boolean;
+};
+
+export type TournamentMatch = {
+  id: number;
+  categoryId: number;
+  stage: TournamentMatchStage;
+  groupId: number | null;
+  groupName: string | null;
+  roundNumber: number | null;
+  slot: number | null;
+  entryA: { id: number; playerName: string; partnerName: string | null } | null;
+  entryB: { id: number; playerName: string; partnerName: string | null } | null;
+  winnerEntryId: number | null;
+  set1: [number, number] | null;
+  set2: [number, number] | null;
+  set3: [number, number] | null;
+  court: string | null;
+  scheduledAt: string | null;
+  status: TournamentMatchStatus;
+  reportedBy: number | null;
+  reportedAt: string | null;
+  confirmedAt: string | null;
+};
+
+export type TournamentGroup = {
+  id: number;
+  name: string;
+  position: number;
+  entries: {
+    registrationId: number;
+    playerName: string;
+    partnerName: string | null;
+    played: number;
+    wins: number;
+    losses: number;
+    setsWon: number;
+    setsLost: number;
+    pointsFor: number;
+    pointsAgainst: number;
+    rank: number;
+    qualifying: "qualified" | "eliminated" | "in-contention";
+  }[];
+};
+
+export type TournamentSchedule = {
+  category: TournamentCategory;
+  groups: TournamentGroup[];
+  matches: TournamentMatch[];
 };
 export type Tournament = {
   id: number;

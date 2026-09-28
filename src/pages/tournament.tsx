@@ -6,12 +6,19 @@ import { Button } from "@/components/ui/button";
 import { Eyebrow, Field, Spinner } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { AuthSheet } from "@/components/auth-sheet";
+import { PlayerSchedule } from "@/components/player-schedule";
 import { useConfirm } from "@/components/confirm-dialog";
 import { api, type PlayerLevel, type Tournament, type TournamentCategory, type TournamentDetail, type TournamentFormat, type TournamentRegistration } from "@/lib/api";
 import { usePlayer } from "@/lib/player";
 import { fmt } from "@/lib/utils";
 
-const FORMAT_LABEL: Record<TournamentFormat, string> = { singles: "Singles", doubles: "Doubles", mixed: "Mixed doubles" };
+const FORMAT_LABEL: Record<TournamentFormat, string> = {
+  mens_singles: "Men's singles",
+  womens_singles: "Women's singles",
+  mens_doubles: "Men's doubles",
+  womens_doubles: "Women's doubles",
+  mixed: "Mixed doubles",
+};
 const LEVEL_LABEL: Record<PlayerLevel, string> = { beginner: "Beginner", intermediate: "Intermediate", advanced: "Advanced" };
 const LEVEL_TONE: Record<PlayerLevel, string> = {
   beginner: "border-cyan/30 bg-cyan/10 text-cyan",
@@ -265,7 +272,7 @@ function TournamentBoard({ tournamentId, onChange }: { tournamentId: number; onC
                     </div>
                   </div>
                   <div className="mt-3 flex flex-wrap justify-end gap-2">
-                    {r.imOwner && r.format !== "singles" && (
+                    {r.imOwner && !r.format.endsWith("singles") && (
                       <Button variant="glass" size="sm" onClick={() => setChangePartner(r)}>
                         <UserPlus size={13} /> Change partner
                       </Button>
@@ -280,6 +287,14 @@ function TournamentBoard({ tournamentId, onChange }: { tournamentId: number; onC
           )}
         </div>
       </aside>
+
+      <section className="lg:col-span-2">
+        <div className="mb-4 flex items-center gap-3">
+          <h3 className="font-display text-xl font-bold">Fixtures & standings</h3>
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">Live</span>
+        </div>
+        <PlayerSchedule tournamentId={tournamentId} player={player} mine={mine} />
+      </section>
 
       <RegisterSheet
         category={registerCategory}
@@ -403,7 +418,7 @@ function RegisterSheet({ category, tournament, onClose, onDone }: { category: To
   }, [category?.id]);
 
   if (!category || !player) return <Sheet open={false} onClose={onClose}>{null}</Sheet>;
-  const requiresPartner = category.format !== "singles";
+  const requiresPartner = !category.format.endsWith("singles");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();

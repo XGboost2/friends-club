@@ -445,7 +445,7 @@ app.get("/api/my-sessions", async (c) => {
 
 // ---------- tournaments (public + player) ----------
 const TOURNAMENT_LOCK_DAYS = 3;
-const FORMATS = ["singles", "doubles", "mixed"];
+const FORMATS = ["mens_singles", "womens_singles", "mens_doubles", "womens_doubles", "mixed"];
 const LEVELS = ["beginner", "intermediate", "advanced"];
 
 function mapTournament(row) {
@@ -461,14 +461,15 @@ function mapTournament(row) {
   };
 }
 
-function needsPartner(format) { return format !== "singles"; }
+function needsPartner(format) { return !format.endsWith("singles"); }
 
 async function tournamentWithCategories(tournamentId, opts = {}) {
   const t = (await query(`SELECT * FROM tournaments WHERE id = $1`, [tournamentId])).rows[0];
   if (!t) return null;
   const cats = (await query(
     `SELECT c.*,
-       (SELECT count(*) FROM tournament_registrations r WHERE r.category_id = c.id) AS entry_count
+       (SELECT count(*) FROM tournament_registrations r WHERE r.category_id = c.id) AS entry_count,
+       (SELECT count(*) FROM tournament_matches m WHERE m.category_id = c.id) AS match_count
      FROM tournament_categories c WHERE c.tournament_id = $1
      ORDER BY c.level, c.format`,
     [tournamentId],
@@ -479,6 +480,10 @@ async function tournamentWithCategories(tournamentId, opts = {}) {
     isOpen: c.is_open,
     maxEntries: c.max_entries,
     entryCount: Number(c.entry_count),
+    structure: c.structure,
+    groupSize: c.group_size,
+    advanceCount: c.advance_count,
+    hasFixtures: Number(c.match_count) > 0,
   }));
   const players = opts.withPlayers
     ? (await query(`SELECT id, name, level FROM players WHERE NOT blocked ORDER BY lower(name)`)).rows
@@ -528,6 +533,168 @@ app.get("/api/tournaments/:id", async (c) => {
   const player = await currentPlayer(c);
   const mine = player ? await myTournamentEntries(player.id, id) : [];
   return c.json({ tournament: detail, mine });
+});
+
+function mapMatchRow(r) {
+  const entry = (idField, nameField, partnerField) => (r[idField] == null ? null : { id: r[idField], playerName: r[nameField], partnerName: r[partnerField] });
+  return {
+    id: r.id,
+    categoryId: r.category_id,
+    stage: r.stage,
+    groupId: r.group_id,
+    groupName: r.group_name ?? null,
+    roundNumber: r.round_number,
+    slot: r.slot,
+    entryA: entry("entry_a_id", "a_player", "a_partner"),
+    entryB: entry("entry_b_id", "b_player", "b_partner"),
+    winnerEntryId: r.winner_entry_id,
+    set1: r.set1_a != null && r.set1_b != null ? [r.set1_a, r.set1_b] : null,
+    set2: r.set2_a != null && r.set2_b != null ? [r.set2_a, r.set2_b] : null,
+    set3: r.set3_a != null && r.set3_b != null ? [r.set3_a, r.set3_b] : null,
+    court: r.court,
+    scheduledAt: r.scheduled_at,
+    status: r.status,
+    reportedBy: r.reported_by,
+    reportedAt: r.reported_at,
+    confirmedAt: r.confirmed_at,
+  };
+}
+
+const MATCH_LIST_SQL = `
+  SELECT m.*, tg.name AS group_name,
+    pa.name AS a_player, COALESCE(paa.name, ra.partner_name) AS a_partner,
+    pb.name AS b_player, COALESCE(pbb.name, rb.partner_name) AS b_partner
+  FROM tournament_matches m
+  LEFT JOIN tournament_groups tg ON tg.id = m.group_id
+  LEFT JOIN tournament_registrations ra ON ra.id = m.entry_a_id
+  LEFT JOIN players pa ON pa.id = ra.player_id
+  LEFT JOIN players paa ON paa.id = ra.partner_id
+  LEFT JOIN tournament_registrations rb ON rb.id = m.entry_b_id
+  LEFT JOIN players pb ON pb.id = rb.player_id
+  LEFT JOIN players pbb ON pbb.id = rb.partner_id`;
+
+async function scheduleFor(tournamentId, viewerPlayerId = null) {
+  const cats = (await query(
+    `SELECT * FROM tournament_categories WHERE tournament_id = $1 ORDER BY level, format`,
+    [tournamentId],
+  )).rows;
+  const perCat = [];
+  for (const c of cats) {
+    const groupsRows = (await query(
+      `SELECT g.id, g.name, g.position FROM tournament_groups g WHERE g.category_id = $1 ORDER BY g.position`,
+      [c.id],
+    )).rows;
+    const groups = [];
+    for (const g of groupsRows) {
+      const { entries } = await groupStandings({ query }, g.id);
+      // Qualifying badge — top advance_count are 'qualified'. Below that we call it 'in-contention' until
+      // all their group matches are confirmed (lazy: mark 'eliminated' only if they've played everyone).
+      const groupSize = entries.length;
+      const groupMatchesPerEntry = groupSize - 1;
+      entries.forEach((e, i) => {
+        if (i < c.advance_count) e.qualifying = "qualified";
+        else if (e.played >= groupMatchesPerEntry) e.qualifying = "eliminated";
+        else e.qualifying = "in-contention";
+      });
+      groups.push({ id: g.id, name: g.name, position: g.position, entries });
+    }
+    const matches = (await query(`${MATCH_LIST_SQL} WHERE m.category_id = $1 ORDER BY m.stage, m.round_number, m.slot, m.id`, [c.id])).rows.map(mapMatchRow);
+    perCat.push({
+      category: {
+        id: c.id, format: c.format, level: c.level, isOpen: c.is_open,
+        maxEntries: c.max_entries, entryCount: 0,
+        structure: c.structure, groupSize: c.group_size, advanceCount: c.advance_count,
+        hasFixtures: matches.length > 0,
+      },
+      groups,
+      matches,
+    });
+  }
+  return perCat;
+}
+
+app.get("/api/tournaments/:id/schedule", async (c) => {
+  const id = Number(c.req.param("id"));
+  const t = (await query(`SELECT * FROM tournaments WHERE id = $1`, [id])).rows[0];
+  if (!t) return bad(c, "Tournament not found.", 404);
+  // Draft tournaments are visible via schedule too so admins can prep fixtures before publishing.
+  // Players who guess a draft ID would see the fixtures but there's nothing sensitive here.
+  const list = await scheduleFor(id);
+  return c.json({ tournament: mapTournament(t), categories: list });
+});
+
+// Player-side report + retract
+const reportSchema = scoreSchemaLazy();
+function scoreSchemaLazy() {
+  // Defined lazily so we can reference the same pair schema without hoisting issues.
+  const pair = z.tuple([z.number().int().min(0).max(60), z.number().int().min(0).max(60)]);
+  return z.object({
+    set1: pair,
+    set2: pair,
+    set3: pair.nullable().optional(),
+  });
+}
+
+app.post("/api/tournaments/matches/:id/report", async (c) => {
+  const player = await currentPlayer(c);
+  if (!player) return bad(c, "Please sign in to report a result.", 401);
+  const id = Number(c.req.param("id"));
+  const { data, error } = await parseBody(c, reportSchema);
+  if (error) return bad(c, error);
+  const result = await tx(async (client) => {
+    const m = (await client.query(`SELECT * FROM tournament_matches WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+    if (!m) return { error: "Match not found.", status: 404 };
+    if (m.status === "confirmed") return { error: "This match is already confirmed.", status: 409 };
+    if (!m.entry_a_id || !m.entry_b_id) return { error: "Both sides must be assigned first.", status: 400 };
+    // Either registered player in the match can report — owner or partner. Off-app partners
+    // have no account so they can't hit this endpoint; their teammate handles it.
+    const owns = (await client.query(
+      `SELECT 1 FROM tournament_registrations
+       WHERE (id = $1 OR id = $2) AND (player_id = $3 OR partner_id = $3)`,
+      [m.entry_a_id, m.entry_b_id, player.id],
+    )).rows[0];
+    if (!owns) return { error: "Only the players in this match can report a result.", status: 403 };
+    const values = {
+      set1_a: data.set1[0], set1_b: data.set1[1],
+      set2_a: data.set2[0], set2_b: data.set2[1],
+      set3_a: data.set3 ? data.set3[0] : null,
+      set3_b: data.set3 ? data.set3[1] : null,
+    };
+    const winner = scoreWinner({ ...m, ...values }, m.entry_a_id, m.entry_b_id);
+    if (!winner) return { error: "Scores don't determine a winner. Enter set 3 if needed.", status: 400 };
+    await client.query(
+      `UPDATE tournament_matches
+         SET set1_a = $1, set1_b = $2, set2_a = $3, set2_b = $4, set3_a = $5, set3_b = $6,
+             status = 'reported', reported_by = $7, reported_at = now()
+       WHERE id = $8`,
+      [values.set1_a, values.set1_b, values.set2_a, values.set2_b, values.set3_a, values.set3_b, player.id, id],
+    );
+    return { ok: true };
+  });
+  if (result.error) return bad(c, result.error, result.status);
+  return c.json({ ok: true });
+});
+
+app.delete("/api/tournaments/matches/:id/report", async (c) => {
+  const player = await currentPlayer(c);
+  if (!player) return bad(c, "Please sign in.", 401);
+  const id = Number(c.req.param("id"));
+  const result = await tx(async (client) => {
+    const m = (await client.query(`SELECT * FROM tournament_matches WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+    if (!m) return { error: "Match not found.", status: 404 };
+    if (m.status !== "reported") return { error: "Nothing to retract.", status: 409 };
+    if (m.reported_by !== player.id) return { error: "Only the reporter can retract.", status: 403 };
+    await client.query(
+      `UPDATE tournament_matches
+         SET status = 'pending', reported_by = NULL, reported_at = NULL,
+             set1_a = NULL, set1_b = NULL, set2_a = NULL, set2_b = NULL, set3_a = NULL, set3_b = NULL
+       WHERE id = $1`,
+      [id],
+    );
+    return { ok: true };
+  });
+  if (result.error) return bad(c, result.error, result.status);
+  return c.json({ ok: true });
 });
 
 async function assertTournamentOpen(client, categoryId) {
@@ -1100,11 +1267,15 @@ app.delete("/api/admin/tournaments/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+const STRUCTURES = ["group", "ko", "group_ko"];
 const categoryFields = z.object({
   format: z.enum(FORMATS),
   level: z.enum(LEVELS),
   isOpen: z.boolean().default(true),
   maxEntries: z.number().int().positive().max(500).optional().nullable(),
+  structure: z.enum(STRUCTURES).default("group_ko"),
+  groupSize: z.number().int().min(2).max(8).default(4),
+  advanceCount: z.number().int().min(1).max(8).default(2),
 });
 
 app.post("/api/admin/tournaments/:id/categories", async (c) => {
@@ -1113,11 +1284,15 @@ app.post("/api/admin/tournaments/:id/categories", async (c) => {
   if (error) return bad(c, error);
   try {
     const row = (await query(
-      `INSERT INTO tournament_categories (tournament_id, format, level, is_open, max_entries)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [tournamentId, data.format, data.level, data.isOpen, data.maxEntries || null],
+      `INSERT INTO tournament_categories (tournament_id, format, level, is_open, max_entries, structure, group_size, advance_count)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [tournamentId, data.format, data.level, data.isOpen, data.maxEntries || null, data.structure, data.groupSize, data.advanceCount],
     )).rows[0];
-    return c.json({ category: { id: row.id, format: row.format, level: row.level, isOpen: row.is_open, maxEntries: row.max_entries, entryCount: 0 } });
+    return c.json({ category: {
+      id: row.id, format: row.format, level: row.level, isOpen: row.is_open,
+      maxEntries: row.max_entries, entryCount: 0,
+      structure: row.structure, groupSize: row.group_size, advanceCount: row.advance_count,
+    } });
   } catch (e) {
     if (e.code === "23505") return bad(c, "That format + level is already added.", 409);
     throw e;
@@ -1131,9 +1306,17 @@ app.patch("/api/admin/tournaments/categories/:id", async (c) => {
     maxEntries: z.number().int().positive().max(500).nullable().optional(),
     format: z.enum(FORMATS).optional(),
     level: z.enum(LEVELS).optional(),
+    structure: z.enum(STRUCTURES).optional(),
+    groupSize: z.number().int().min(2).max(8).optional(),
+    advanceCount: z.number().int().min(1).max(8).optional(),
   }));
   if (error) return bad(c, error);
-  const columns = { isOpen: "is_open", maxEntries: "max_entries", format: "format", level: "level" };
+  // Locking rule: structure/groupSize/advanceCount can't change once fixtures exist.
+  if (data.structure !== undefined || data.groupSize !== undefined || data.advanceCount !== undefined) {
+    const has = Number((await query(`SELECT count(*) AS n FROM tournament_matches WHERE category_id = $1`, [id])).rows[0].n);
+    if (has > 0) return bad(c, "Reset fixtures before changing structure or group settings.", 409);
+  }
+  const columns = { isOpen: "is_open", maxEntries: "max_entries", format: "format", level: "level", structure: "structure", groupSize: "group_size", advanceCount: "advance_count" };
   const sets = [], values = [];
   for (const [k, col] of Object.entries(columns)) {
     if (data[k] !== undefined) { values.push(data[k]); sets.push(`${col} = $${values.length}`); }
@@ -1152,6 +1335,441 @@ app.patch("/api/admin/tournaments/categories/:id", async (c) => {
 
 app.delete("/api/admin/tournaments/categories/:id", async (c) => {
   await query(`DELETE FROM tournament_categories WHERE id = $1`, [Number(c.req.param("id"))]);
+  return c.json({ ok: true });
+});
+
+// ---------- fixture generation helpers ----------
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/** Distribute N ids into G groups, snake-style. Balances registration order. */
+function snakeDistribute(ids, groupCount) {
+  const groups = Array.from({ length: groupCount }, () => []);
+  let dir = 1, idx = 0;
+  for (const id of ids) {
+    groups[idx].push(id);
+    idx += dir;
+    if (idx === groupCount) { idx = groupCount - 1; dir = -1; }
+    else if (idx < 0) { idx = 0; dir = 1; }
+  }
+  return groups;
+}
+
+/** Berger-style round-robin pairs for a group of size k (1-indexed positions). */
+function roundRobinPairs(k) {
+  const positions = Array.from({ length: k }, (_, i) => i + 1);
+  const pairs = [];
+  for (let i = 0; i < positions.length; i++) {
+    for (let j = i + 1; j < positions.length; j++) {
+      pairs.push([positions[i], positions[j]]);
+    }
+  }
+  return pairs;
+}
+
+const nextPow2 = (n) => { let p = 1; while (p < n) p <<= 1; return Math.max(2, p); };
+const STAGE_ORDER = ["final", "semi", "quarter", "r16", "r32"];
+function stageFor(round, totalRounds) {
+  const dist = totalRounds - round; // 0 = final round
+  return STAGE_ORDER[dist] || "group";
+}
+
+/** Standard tournament seeding order for bracket size n (must be power of 2). */
+function seedOrder(size) {
+  let order = [1, 2];
+  while (order.length < size) {
+    const doubled = order.length * 2;
+    const next = [];
+    for (const s of order) {
+      next.push(s);
+      next.push(doubled + 1 - s);
+    }
+    order = next;
+  }
+  return order;
+}
+
+// ---------- fixture generation endpoints ----------
+async function categoryOrDie(client, id) {
+  const row = (await client.query(`SELECT * FROM tournament_categories WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+  return row || null;
+}
+
+app.post("/api/admin/tournaments/categories/:id/reset", async (c) => {
+  const id = Number(c.req.param("id"));
+  await tx(async (client) => {
+    await client.query(`DELETE FROM tournament_matches WHERE category_id = $1`, [id]);
+    await client.query(`DELETE FROM tournament_groups WHERE category_id = $1`, [id]);
+  });
+  return c.json({ ok: true });
+});
+
+app.post("/api/admin/tournaments/categories/:id/generate-groups", async (c) => {
+  const id = Number(c.req.param("id"));
+  const result = await tx(async (client) => {
+    const cat = await categoryOrDie(client, id);
+    if (!cat) return { error: "Category not found.", status: 404 };
+    if (cat.structure === "ko") return { error: "This category is knockout-only. Use Generate knockout instead.", status: 400 };
+    const has = Number((await client.query(`SELECT count(*) AS n FROM tournament_matches WHERE category_id = $1 AND stage = 'group'`, [id])).rows[0].n);
+    if (has > 0) return { error: "Group matches already exist. Reset first.", status: 409 };
+    const entries = shuffleInPlace(
+      (await client.query(`SELECT id FROM tournament_registrations WHERE category_id = $1`, [id])).rows.map((r) => r.id),
+    );
+    if (entries.length < 2) return { error: "Need at least 2 entries.", status: 400 };
+    const groupCount = Math.max(1, Math.ceil(entries.length / cat.group_size));
+    const buckets = snakeDistribute(entries, groupCount);
+    // Wipe any lingering groups (shouldn't be any, but keep it idempotent).
+    await client.query(`DELETE FROM tournament_groups WHERE category_id = $1`, [id]);
+    for (let i = 0; i < buckets.length; i++) {
+      const name = String.fromCharCode(65 + i); // A, B, C...
+      const g = (await client.query(
+        `INSERT INTO tournament_groups (category_id, name, position) VALUES ($1,$2,$3) RETURNING id`,
+        [id, name, i],
+      )).rows[0];
+      const members = buckets[i];
+      for (let s = 0; s < members.length; s++) {
+        await client.query(
+          `INSERT INTO tournament_group_entries (group_id, registration_id, seed) VALUES ($1,$2,$3)`,
+          [g.id, members[s], s + 1],
+        );
+      }
+      // Round-robin matches within this group.
+      for (const [a, b] of roundRobinPairs(members.length)) {
+        await client.query(
+          `INSERT INTO tournament_matches (category_id, stage, group_id, entry_a_id, entry_b_id)
+           VALUES ($1,'group',$2,$3,$4)`,
+          [id, g.id, members[a - 1], members[b - 1]],
+        );
+      }
+    }
+    return { ok: true, groups: buckets.length };
+  });
+  if (result.error) return bad(c, result.error, result.status);
+  return c.json(result);
+});
+
+async function groupStandings(client, groupId) {
+  const entries = (await client.query(
+    `SELECT ge.registration_id, r.player_id, r.partner_id, r.partner_name,
+            p.name AS player_name, COALESCE(p2.name, r.partner_name) AS partner_display
+     FROM tournament_group_entries ge
+     JOIN tournament_registrations r ON r.id = ge.registration_id
+     JOIN players p ON p.id = r.player_id
+     LEFT JOIN players p2 ON p2.id = r.partner_id
+     WHERE ge.group_id = $1`,
+    [groupId],
+  )).rows;
+  const matches = (await client.query(
+    `SELECT * FROM tournament_matches WHERE group_id = $1 AND status = 'confirmed'`,
+    [groupId],
+  )).rows;
+  const stats = new Map(entries.map((e) => [e.registration_id, {
+    registrationId: e.registration_id,
+    playerName: e.player_name,
+    partnerName: e.partner_display,
+    played: 0, wins: 0, losses: 0, setsWon: 0, setsLost: 0, pointsFor: 0, pointsAgainst: 0,
+  }]));
+  for (const m of matches) {
+    const a = stats.get(m.entry_a_id), b = stats.get(m.entry_b_id);
+    if (!a || !b) continue;
+    const sets = [[m.set1_a, m.set1_b], [m.set2_a, m.set2_b], [m.set3_a, m.set3_b]].filter((s) => s[0] != null && s[1] != null);
+    let setsA = 0, setsB = 0, pA = 0, pB = 0;
+    for (const [sa, sb] of sets) {
+      pA += sa; pB += sb;
+      if (sa > sb) setsA++;
+      else if (sb > sa) setsB++;
+    }
+    a.played++; b.played++;
+    a.setsWon += setsA; a.setsLost += setsB;
+    b.setsWon += setsB; b.setsLost += setsA;
+    a.pointsFor += pA; a.pointsAgainst += pB;
+    b.pointsFor += pB; b.pointsAgainst += pA;
+    if (m.winner_entry_id === a.registrationId) { a.wins++; b.losses++; }
+    else if (m.winner_entry_id === b.registrationId) { b.wins++; a.losses++; }
+  }
+  const ranked = [...stats.values()].sort((x, y) => {
+    if (y.wins !== x.wins) return y.wins - x.wins;
+    const xDiff = x.setsWon - x.setsLost, yDiff = y.setsWon - y.setsLost;
+    if (yDiff !== xDiff) return yDiff - xDiff;
+    const xPd = x.pointsFor - x.pointsAgainst, yPd = y.pointsFor - y.pointsAgainst;
+    if (yPd !== xPd) return yPd - xPd;
+    if (y.pointsFor !== x.pointsFor) return y.pointsFor - x.pointsFor;
+    return x.playerName.localeCompare(y.playerName);
+  });
+  ranked.forEach((r, i) => (r.rank = i + 1));
+  return { entries: ranked, matchesPlayed: matches.length };
+}
+
+app.post("/api/admin/tournaments/categories/:id/generate-knockout", async (c) => {
+  const id = Number(c.req.param("id"));
+  const result = await tx(async (client) => {
+    const cat = await categoryOrDie(client, id);
+    if (!cat) return { error: "Category not found.", status: 404 };
+    let entries;
+    if (cat.structure === "ko") {
+      entries = shuffleInPlace(
+        (await client.query(`SELECT id FROM tournament_registrations WHERE category_id = $1`, [id])).rows.map((r) => r.id),
+      );
+    } else {
+      // group_ko: pick top advance_count from each group. Requires all group matches confirmed.
+      const groups = (await client.query(
+        `SELECT id FROM tournament_groups WHERE category_id = $1 ORDER BY position`,
+        [id],
+      )).rows;
+      if (!groups.length) return { error: "Generate groups first.", status: 409 };
+      const remaining = Number((await client.query(
+        `SELECT count(*) AS n FROM tournament_matches WHERE category_id = $1 AND stage = 'group' AND status <> 'confirmed'`,
+        [id],
+      )).rows[0].n);
+      if (remaining > 0) return { error: `${remaining} group match(es) still need to be confirmed.`, status: 409 };
+      entries = [];
+      const perGroup = [];
+      for (const g of groups) {
+        const { entries: standings } = await groupStandings(client, g.id);
+        const top = standings.slice(0, cat.advance_count).map((s) => s.registrationId);
+        perGroup.push(top);
+      }
+      // Cross-pair by rank so group-mates don't meet in the first round.
+      const maxPerGroup = Math.max(...perGroup.map((g) => g.length));
+      for (let rank = 0; rank < maxPerGroup; rank++) {
+        for (let g = 0; g < perGroup.length; g++) {
+          const id2 = perGroup[g][rank];
+          if (id2) entries.push(id2);
+        }
+      }
+    }
+    if (entries.length < 2) return { error: "Need at least 2 entries to build a bracket.", status: 400 };
+    // Wipe any existing knockout matches.
+    await client.query(`DELETE FROM tournament_matches WHERE category_id = $1 AND stage <> 'group'`, [id]);
+    const bracketSize = nextPow2(entries.length);
+    if (bracketSize > 32) return { error: "Bracket too large (max 32 entries).", status: 400 };
+    const order = seedOrder(bracketSize);
+    // Fill by seed position; overflow past entries.length are byes (null).
+    const slots = order.map((seedPos) => entries[seedPos - 1] ?? null);
+    const totalRounds = Math.log2(bracketSize);
+    // Create matches for round 1 (round_number = 1 furthest from final).
+    // Actually we index rounds so that round=totalRounds is the final.
+    // Rows correspond to bracket slots — pairs (0,1), (2,3), ...
+    const roundOneMatches = [];
+    for (let i = 0; i < bracketSize; i += 2) {
+      const a = slots[i], b = slots[i + 1];
+      const round = 1;
+      const slot = i / 2;
+      const stage = stageFor(round, totalRounds);
+      let winner = null;
+      // If one side is null (bye), the other side auto-advances.
+      if (a && !b) winner = a;
+      else if (!a && b) winner = b;
+      const status = winner ? "confirmed" : "pending";
+      const row = (await client.query(
+        `INSERT INTO tournament_matches (category_id, stage, round_number, slot, entry_a_id, entry_b_id, winner_entry_id, status, confirmed_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $8 = 'confirmed' THEN now() END) RETURNING id`,
+        [id, stage, round, slot, a, b, winner, status],
+      )).rows[0];
+      roundOneMatches.push({ id: row.id, slot, winner });
+    }
+    // Create empty matches for subsequent rounds, filling entry slots with any auto-advanced byes.
+    let previous = roundOneMatches;
+    for (let round = 2; round <= totalRounds; round++) {
+      const parents = [];
+      for (let i = 0; i < previous.length; i += 2) {
+        const parentSlot = Math.floor(previous[i].slot / 2);
+        const stage = stageFor(round, totalRounds);
+        const winnerA = previous[i].winner;
+        const winnerB = previous[i + 1]?.winner ?? null;
+        let winner = null;
+        if (winnerA && !previous[i + 1]) winner = winnerA;
+        const status = winner ? "confirmed" : "pending";
+        const row = (await client.query(
+          `INSERT INTO tournament_matches (category_id, stage, round_number, slot, entry_a_id, entry_b_id, winner_entry_id, status, confirmed_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $8 = 'confirmed' THEN now() END) RETURNING id`,
+          [id, stage, round, parentSlot, winnerA, winnerB, winner, status],
+        )).rows[0];
+        parents.push({ id: row.id, slot: parentSlot, winner });
+      }
+      previous = parents;
+    }
+    return { ok: true, matches: bracketSize - 1 };
+  });
+  if (result.error) return bad(c, result.error, result.status);
+  return c.json(result);
+});
+
+app.post("/api/admin/tournaments/groups/:id/swap", async (c) => {
+  const groupId = Number(c.req.param("id"));
+  const { data, error } = await parseBody(c, z.object({ regA: z.number().int(), regB: z.number().int() }));
+  if (error) return bad(c, error);
+  const result = await tx(async (client) => {
+    const a = (await client.query(`SELECT * FROM tournament_group_entries WHERE registration_id = $1`, [data.regA])).rows[0];
+    const b = (await client.query(`SELECT * FROM tournament_group_entries WHERE registration_id = $1`, [data.regB])).rows[0];
+    if (!a || !b) return { error: "One or both entries not found.", status: 404 };
+    // Both must belong to the same category (via their groups).
+    const g1 = (await client.query(`SELECT category_id FROM tournament_groups WHERE id = $1`, [a.group_id])).rows[0];
+    const g2 = (await client.query(`SELECT category_id FROM tournament_groups WHERE id = $1`, [b.group_id])).rows[0];
+    if (g1.category_id !== g2.category_id) return { error: "Entries belong to different categories.", status: 400 };
+    // Refuse to swap once anyone has entered scores — swap wipes+rebuilds the round-robin.
+    const played = Number((await client.query(
+      `SELECT count(*) AS n FROM tournament_matches
+       WHERE category_id = $1 AND stage = 'group' AND status <> 'pending'`,
+      [g1.category_id],
+    )).rows[0].n);
+    if (played > 0) {
+      return { error: "Can't swap once group matches have been reported or confirmed. Reset the category first.", status: 409 };
+    }
+    // Swap group_id (seed stays).
+    await client.query(`UPDATE tournament_group_entries SET group_id = $1 WHERE registration_id = $2`, [b.group_id, data.regA]);
+    await client.query(`UPDATE tournament_group_entries SET group_id = $1 WHERE registration_id = $2`, [a.group_id, data.regB]);
+    // Wipe pending group matches for both affected groups and re-emit them.
+    await client.query(
+      `DELETE FROM tournament_matches WHERE category_id = $1 AND stage = 'group'`,
+      [g1.category_id],
+    );
+    // Re-emit round-robin matches for both affected groups.
+    for (const gid of [a.group_id, b.group_id]) {
+      const members = (await client.query(
+        `SELECT registration_id FROM tournament_group_entries WHERE group_id = $1 ORDER BY seed NULLS LAST, registration_id`,
+        [gid],
+      )).rows.map((r) => r.registration_id);
+      for (const [x, y] of roundRobinPairs(members.length)) {
+        await client.query(
+          `INSERT INTO tournament_matches (category_id, stage, group_id, entry_a_id, entry_b_id)
+           VALUES ($1,'group',$2,$3,$4)`,
+          [g1.category_id, gid, members[x - 1], members[y - 1]],
+        );
+      }
+    }
+    return { ok: true };
+  });
+  if (result.error) return bad(c, result.error, result.status);
+  return c.json({ ok: true });
+});
+
+const matchScheduleSchema = z.object({
+  court: z.string().trim().max(60).nullable().optional(),
+  scheduledAt: z.string().datetime().nullable().optional(),
+  notes: z.string().trim().max(500).nullable().optional(),
+});
+
+app.patch("/api/admin/tournaments/matches/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { data, error } = await parseBody(c, matchScheduleSchema);
+  if (error) return bad(c, error);
+  const columns = { court: "court", scheduledAt: "scheduled_at", notes: "notes" };
+  const sets = [], values = [];
+  for (const [k, col] of Object.entries(columns)) {
+    if (data[k] !== undefined) { values.push(data[k] || null); sets.push(`${col} = $${values.length}`); }
+  }
+  if (!sets.length) return bad(c, "Nothing to update.");
+  values.push(id);
+  const { rows } = await query(`UPDATE tournament_matches SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING id`, values);
+  if (!rows[0]) return bad(c, "Match not found.", 404);
+  return c.json({ ok: true });
+});
+
+// ---- score entry + confirmation ----
+const setPairSchema = z.tuple([z.number().int().min(0).max(60), z.number().int().min(0).max(60)]);
+const scoreSchema = z.object({
+  set1: setPairSchema,
+  set2: setPairSchema,
+  set3: setPairSchema.nullable().optional(),
+});
+
+function scoreWinner(match, entryAId, entryBId) {
+  const sets = [
+    [match.set1_a, match.set1_b],
+    [match.set2_a, match.set2_b],
+    [match.set3_a, match.set3_b],
+  ].filter((s) => s[0] != null && s[1] != null);
+  if (!sets.length) return null;
+  let a = 0, b = 0;
+  for (const [sa, sb] of sets) { if (sa > sb) a++; else if (sb > sa) b++; }
+  if (a === b) return null;
+  return a > b ? entryAId : entryBId;
+}
+
+async function advanceKnockoutWinner(client, matchRow) {
+  if (matchRow.stage === "group") return;
+  const parentSlot = Math.floor(matchRow.slot / 2);
+  const parentRound = matchRow.round_number + 1;
+  const parent = (await client.query(
+    `SELECT * FROM tournament_matches WHERE category_id = $1 AND round_number = $2 AND slot = $3 FOR UPDATE`,
+    [matchRow.category_id, parentRound, parentSlot],
+  )).rows[0];
+  if (!parent) return; // final has no parent
+  const asA = matchRow.slot % 2 === 0;
+  await client.query(
+    `UPDATE tournament_matches SET ${asA ? "entry_a_id" : "entry_b_id"} = $1 WHERE id = $2`,
+    [matchRow.winner_entry_id, parent.id],
+  );
+}
+
+app.post("/api/admin/tournaments/matches/:id/result", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { data, error } = await parseBody(c, scoreSchema);
+  if (error) return bad(c, error);
+  const result = await tx(async (client) => {
+    const m = (await client.query(`SELECT * FROM tournament_matches WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+    if (!m) return { error: "Match not found.", status: 404 };
+    if (!m.entry_a_id || !m.entry_b_id) return { error: "Both sides must be assigned before entering a score.", status: 400 };
+    const values = {
+      set1_a: data.set1[0], set1_b: data.set1[1],
+      set2_a: data.set2[0], set2_b: data.set2[1],
+      set3_a: data.set3 ? data.set3[0] : null,
+      set3_b: data.set3 ? data.set3[1] : null,
+    };
+    const winner = scoreWinner({ ...m, ...values }, m.entry_a_id, m.entry_b_id);
+    if (!winner) return { error: "Scores don't determine a winner.", status: 400 };
+    const updated = (await client.query(
+      `UPDATE tournament_matches
+         SET set1_a = $1, set1_b = $2, set2_a = $3, set2_b = $4, set3_a = $5, set3_b = $6,
+             winner_entry_id = $7, status = 'confirmed', confirmed_at = now(),
+             reported_by = NULL, reported_at = NULL
+       WHERE id = $8 RETURNING *`,
+      [values.set1_a, values.set1_b, values.set2_a, values.set2_b, values.set3_a, values.set3_b, winner, id],
+    )).rows[0];
+    await advanceKnockoutWinner(client, updated);
+    return { ok: true };
+  });
+  if (result.error) return bad(c, result.error, result.status);
+  return c.json({ ok: true });
+});
+
+app.post("/api/admin/tournaments/matches/:id/confirm", async (c) => {
+  const id = Number(c.req.param("id"));
+  const result = await tx(async (client) => {
+    const m = (await client.query(`SELECT * FROM tournament_matches WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+    if (!m) return { error: "Match not found.", status: 404 };
+    if (m.status !== "reported") return { error: "Nothing to confirm — no result reported.", status: 409 };
+    const winner = scoreWinner(m, m.entry_a_id, m.entry_b_id);
+    if (!winner) return { error: "Reported score is invalid — reject and re-enter.", status: 400 };
+    const updated = (await client.query(
+      `UPDATE tournament_matches SET winner_entry_id = $1, status = 'confirmed', confirmed_at = now()
+       WHERE id = $2 RETURNING *`,
+      [winner, id],
+    )).rows[0];
+    await advanceKnockoutWinner(client, updated);
+    return { ok: true };
+  });
+  if (result.error) return bad(c, result.error, result.status);
+  return c.json({ ok: true });
+});
+
+app.post("/api/admin/tournaments/matches/:id/reject", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { rows } = await query(
+    `UPDATE tournament_matches
+       SET status = 'pending', reported_by = NULL, reported_at = NULL,
+           set1_a = NULL, set1_b = NULL, set2_a = NULL, set2_b = NULL, set3_a = NULL, set3_b = NULL,
+           winner_entry_id = NULL
+     WHERE id = $1 RETURNING id`,
+    [id],
+  );
+  if (!rows[0]) return bad(c, "Match not found.", 404);
   return c.json({ ok: true });
 });
 

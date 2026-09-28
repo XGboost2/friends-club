@@ -162,13 +162,29 @@ export async function migrate() {
     CREATE TABLE IF NOT EXISTS tournament_categories (
       id SERIAL PRIMARY KEY,
       tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
-      format TEXT NOT NULL CHECK (format IN ('singles','doubles','mixed')),
+      format TEXT NOT NULL,
       level TEXT NOT NULL CHECK (level IN ('beginner','intermediate','advanced')),
       is_open BOOLEAN NOT NULL DEFAULT TRUE,
       max_entries INTEGER,
+      structure TEXT NOT NULL DEFAULT 'group_ko' CHECK (structure IN ('group','ko','group_ko')),
+      group_size INTEGER NOT NULL DEFAULT 4 CHECK (group_size BETWEEN 2 AND 8),
+      advance_count INTEGER NOT NULL DEFAULT 2 CHECK (advance_count BETWEEN 1 AND 8),
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE (tournament_id, format, level)
     );
+
+    -- Idempotent add for upgrades from the earlier singles/doubles/mixed enum.
+    ALTER TABLE tournament_categories ADD COLUMN IF NOT EXISTS structure TEXT NOT NULL DEFAULT 'group_ko';
+    ALTER TABLE tournament_categories ADD COLUMN IF NOT EXISTS group_size INTEGER NOT NULL DEFAULT 4;
+    ALTER TABLE tournament_categories ADD COLUMN IF NOT EXISTS advance_count INTEGER NOT NULL DEFAULT 2;
+    UPDATE tournament_categories SET format = 'mens_singles' WHERE format = 'singles';
+    UPDATE tournament_categories SET format = 'mens_doubles' WHERE format = 'doubles';
+    ALTER TABLE tournament_categories DROP CONSTRAINT IF EXISTS tournament_categories_format_check;
+    ALTER TABLE tournament_categories ADD CONSTRAINT tournament_categories_format_check
+      CHECK (format IN ('mens_singles','womens_singles','mens_doubles','womens_doubles','mixed'));
+    ALTER TABLE tournament_categories DROP CONSTRAINT IF EXISTS tournament_categories_structure_check;
+    ALTER TABLE tournament_categories ADD CONSTRAINT tournament_categories_structure_check
+      CHECK (structure IN ('group','ko','group_ko'));
 
     CREATE TABLE IF NOT EXISTS tournament_registrations (
       id SERIAL PRIMARY KEY,
@@ -186,6 +202,49 @@ export async function migrate() {
 
     -- Allow pairing with someone who doesn't have an account yet.
     ALTER TABLE tournament_registrations ADD COLUMN IF NOT EXISTS partner_name TEXT;
+
+    -- Fixtures: groups + matches
+    CREATE TABLE IF NOT EXISTS tournament_groups (
+      id SERIAL PRIMARY KEY,
+      category_id INTEGER NOT NULL REFERENCES tournament_categories(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (category_id, position)
+    );
+
+    CREATE TABLE IF NOT EXISTS tournament_group_entries (
+      group_id INTEGER NOT NULL REFERENCES tournament_groups(id) ON DELETE CASCADE,
+      registration_id INTEGER NOT NULL REFERENCES tournament_registrations(id) ON DELETE CASCADE,
+      seed INTEGER,
+      PRIMARY KEY (group_id, registration_id),
+      UNIQUE (registration_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS tournament_matches (
+      id SERIAL PRIMARY KEY,
+      category_id INTEGER NOT NULL REFERENCES tournament_categories(id) ON DELETE CASCADE,
+      stage TEXT NOT NULL CHECK (stage IN ('group','r32','r16','quarter','semi','final')),
+      group_id INTEGER REFERENCES tournament_groups(id) ON DELETE CASCADE,
+      round_number INTEGER,
+      slot INTEGER,
+      entry_a_id INTEGER REFERENCES tournament_registrations(id) ON DELETE SET NULL,
+      entry_b_id INTEGER REFERENCES tournament_registrations(id) ON DELETE SET NULL,
+      winner_entry_id INTEGER REFERENCES tournament_registrations(id) ON DELETE SET NULL,
+      set1_a INTEGER, set1_b INTEGER,
+      set2_a INTEGER, set2_b INTEGER,
+      set3_a INTEGER, set3_b INTEGER,
+      court TEXT,
+      scheduled_at TIMESTAMPTZ,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','reported','confirmed')),
+      reported_by INTEGER REFERENCES players(id) ON DELETE SET NULL,
+      reported_at TIMESTAMPTZ,
+      confirmed_at TIMESTAMPTZ,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS tournament_matches_category_idx ON tournament_matches (category_id, stage);
+    CREATE INDEX IF NOT EXISTS tournament_matches_scheduled_idx ON tournament_matches (scheduled_at);
   `);
 }
 

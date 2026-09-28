@@ -6,12 +6,19 @@ import { Button } from "@/components/ui/button";
 import { Eyebrow, Field, Spinner } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { useConfirm } from "@/components/confirm-dialog";
-import { api, type PlayerLevel, type Tournament, type TournamentCategory, type TournamentDetail, type TournamentFormat, type TournamentRegistration, type TournamentStatus } from "@/lib/api";
+import { AdminFixtures } from "@/components/admin-fixtures";
+import { api, type PlayerLevel, type Tournament, type TournamentCategory, type TournamentDetail, type TournamentFormat, type TournamentRegistration, type TournamentStatus, type TournamentStructure } from "@/lib/api";
 import { cn, fmt, isoDay } from "@/lib/utils";
 
-const FORMATS: TournamentFormat[] = ["singles", "doubles", "mixed"];
+const FORMATS: TournamentFormat[] = ["mens_singles", "womens_singles", "mens_doubles", "womens_doubles", "mixed"];
 const LEVELS: PlayerLevel[] = ["beginner", "intermediate", "advanced"];
-const FORMAT_LABEL: Record<TournamentFormat, string> = { singles: "Singles", doubles: "Doubles", mixed: "Mixed" };
+const FORMAT_LABEL: Record<TournamentFormat, string> = {
+  mens_singles: "Men's singles",
+  womens_singles: "Women's singles",
+  mens_doubles: "Men's doubles",
+  womens_doubles: "Women's doubles",
+  mixed: "Mixed doubles",
+};
 const LEVEL_LABEL: Record<PlayerLevel, string> = { beginner: "Beginner", intermediate: "Intermediate", advanced: "Advanced" };
 const STATUS_TONE: Record<TournamentStatus, string> = {
   draft: "bg-soft text-muted-foreground",
@@ -328,6 +335,10 @@ function TournamentCard({ summary, isOpen, onToggle, onChanged, onDelete }: {
                       })}
                     </div>
                   </section>
+
+                  {detail.categories.length > 0 && (
+                    <AdminFixtures tournamentId={summary.id} categories={detail.categories} onChanged={() => { load(); onChanged(); }} />
+                  )}
                 </>
               )}
             </div>
@@ -443,9 +454,12 @@ function EditTournamentSheet({ open, onClose, summary, onSaved }: { open: boolea
 }
 
 function CategorySheet({ open, onClose, tournamentId, existing, onCreated }: { open: boolean; onClose: () => void; tournamentId: number; existing: TournamentCategory[]; onCreated: () => void }) {
-  const [format, setFormat] = useState<TournamentFormat>("doubles");
+  const [format, setFormat] = useState<TournamentFormat>("mens_doubles");
   const [level, setLevel] = useState<PlayerLevel>("intermediate");
   const [maxEntries, setMaxEntries] = useState("");
+  const [structure, setStructure] = useState<TournamentStructure>("group_ko");
+  const [groupSize, setGroupSize] = useState("4");
+  const [advanceCount, setAdvanceCount] = useState("2");
   const [busy, setBusy] = useState(false);
 
   const dup = existing.some((c) => c.format === format && c.level === level);
@@ -456,7 +470,13 @@ function CategorySheet({ open, onClose, tournamentId, existing, onCreated }: { o
     setBusy(true);
     try {
       await api(`/api/admin/tournaments/${tournamentId}/categories`, {
-        body: { format, level, isOpen: true, maxEntries: maxEntries ? Number(maxEntries) : null },
+        body: {
+          format, level, isOpen: true,
+          maxEntries: maxEntries ? Number(maxEntries) : null,
+          structure,
+          groupSize: Number(groupSize) || 4,
+          advanceCount: Number(advanceCount) || 2,
+        },
       });
       toast.success("Category added.");
       onCreated();
@@ -468,12 +488,12 @@ function CategorySheet({ open, onClose, tournamentId, existing, onCreated }: { o
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="Add category" subtitle="Choose format, level, and optional cap.">
+    <Sheet open={open} onClose={onClose} title="Add category" subtitle="Choose format, level, structure and cap.">
       <form onSubmit={submit} className="space-y-4 pb-4 pt-3">
         <Field label="Format">
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {FORMATS.map((f) => (
-              <button key={f} type="button" onClick={() => setFormat(f)} className={`rounded-xl border px-3 py-2 text-sm font-semibold capitalize transition ${format === f ? "border-primary/60 bg-primary/10 text-primary" : "border-border bg-soft text-muted-foreground hover:text-foreground"}`}>
+              <button key={f} type="button" onClick={() => setFormat(f)} className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${format === f ? "border-primary/60 bg-primary/10 text-primary" : "border-border bg-soft text-muted-foreground hover:text-foreground"}`}>
                 {FORMAT_LABEL[f]}
               </button>
             ))}
@@ -488,6 +508,27 @@ function CategorySheet({ open, onClose, tournamentId, existing, onCreated }: { o
             ))}
           </div>
         </Field>
+        <Field label="Structure" hint="Group only = round-robin, no knockout. KO only = straight bracket. Group + KO = round-robin qualifiers then bracket.">
+          <div className="grid grid-cols-3 gap-2">
+            {(["group_ko", "group", "ko"] as TournamentStructure[]).map((s) => (
+              <button key={s} type="button" onClick={() => setStructure(s)} className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${structure === s ? "border-primary/60 bg-primary/10 text-primary" : "border-border bg-soft text-muted-foreground hover:text-foreground"}`}>
+                {s === "group_ko" ? "Group + KO" : s === "group" ? "Group only" : "KO only"}
+              </button>
+            ))}
+          </div>
+        </Field>
+        {structure !== "ko" && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Group size">
+              <input className="field" type="number" min="2" max="8" value={groupSize} onChange={(e) => setGroupSize(e.target.value)} />
+            </Field>
+            {structure === "group_ko" && (
+              <Field label="Advance per group">
+                <input className="field" type="number" min="1" max="8" value={advanceCount} onChange={(e) => setAdvanceCount(e.target.value)} />
+              </Field>
+            )}
+          </div>
+        )}
         <Field label="Max entries (optional)">
           <input className="field" type="number" min="1" max="500" value={maxEntries} onChange={(e) => setMaxEntries(e.target.value)} placeholder="Leave empty for no cap" />
         </Field>
@@ -533,7 +574,7 @@ function EditRegistrationSheet({ registration, onClose, categories, players, onS
 
   if (!registration) return <Sheet open={false} onClose={onClose}>{null}</Sheet>;
   const cat = categories.find((c) => c.id === categoryId);
-  const partnerNeeded = cat && cat.format !== "singles";
+  const partnerNeeded = cat && !cat.format.endsWith("singles");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
