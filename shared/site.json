@@ -3,6 +3,10 @@
   "title": "Friends Club — Badminton in Prague for all levels",
   "description": "Friendly badminton sessions in Prague for all levels. Pick a date, join the poll, bring friends and check in with your Multisport card — or pay at the venue.",
   "tagline": "Badminton in Prague · Badminton Praha",
+  "social": {
+    "instagram": "https://www.instagram.com/friends_club.cz/",
+    "facebook": "https://www.facebook.com/p/Friends-Club-61585211807779/"
+  },
   "steps": [
     { "title": "Pick a date", "text": "Glowing dates on the calendar have an open poll. Choose the session that suits you." },
     { "title": "Join in seconds", "text": "Enter your name, add your Multisport card or choose to pay at the venue, and bring friends as guests." },

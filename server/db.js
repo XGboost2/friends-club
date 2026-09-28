@@ -145,6 +145,47 @@ export async function migrate() {
     ALTER TABLE guests ADD COLUMN IF NOT EXISTS card_key TEXT;
     ALTER TABLE guests ADD COLUMN IF NOT EXISTS holder_name TEXT;
     ALTER TABLE guests ADD COLUMN IF NOT EXISTS paid_method TEXT;
+
+    -- Tournaments
+    CREATE TABLE IF NOT EXISTS tournaments (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      starts_on DATE NOT NULL,
+      start_time TEXT,
+      venue TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','open','closed','completed')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS tournaments_starts_on_idx ON tournaments(starts_on);
+
+    CREATE TABLE IF NOT EXISTS tournament_categories (
+      id SERIAL PRIMARY KEY,
+      tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+      format TEXT NOT NULL CHECK (format IN ('singles','doubles','mixed')),
+      level TEXT NOT NULL CHECK (level IN ('beginner','intermediate','advanced')),
+      is_open BOOLEAN NOT NULL DEFAULT TRUE,
+      max_entries INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (tournament_id, format, level)
+    );
+
+    CREATE TABLE IF NOT EXISTS tournament_registrations (
+      id SERIAL PRIMARY KEY,
+      category_id INTEGER NOT NULL REFERENCES tournament_categories(id) ON DELETE CASCADE,
+      player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+      partner_id INTEGER REFERENCES players(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (category_id, player_id),
+      CHECK (partner_id IS NULL OR partner_id <> player_id)
+    );
+    CREATE INDEX IF NOT EXISTS tournament_registrations_partner_idx ON tournament_registrations(partner_id);
+    -- No two rows in the same category may point to the same partner.
+    CREATE UNIQUE INDEX IF NOT EXISTS tournament_registrations_partner_unique
+      ON tournament_registrations(category_id, partner_id) WHERE partner_id IS NOT NULL;
+
+    -- Allow pairing with someone who doesn't have an account yet.
+    ALTER TABLE tournament_registrations ADD COLUMN IF NOT EXISTS partner_name TEXT;
   `);
 }
 

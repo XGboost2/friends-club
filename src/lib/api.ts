@@ -53,6 +53,45 @@ export type Player = {
 };
 export type AdminPlayer = Player & { sessionCount: number; lastActive: string | null };
 
+export type TournamentFormat = "singles" | "doubles" | "mixed";
+export type TournamentStatus = "draft" | "open" | "closed" | "completed";
+export type TournamentCategory = {
+  id: number;
+  format: TournamentFormat;
+  level: PlayerLevel;
+  isOpen: boolean;
+  maxEntries: number | null;
+  entryCount: number;
+};
+export type Tournament = {
+  id: number;
+  name: string;
+  startsOn: string;
+  startTime: string | null;
+  venue: string;
+  description: string | null;
+  status: TournamentStatus;
+  createdAt?: string;
+  entryCount?: number;
+};
+export type TournamentDetail = Tournament & {
+  categories: TournamentCategory[];
+  players?: { id: number; name: string; level: PlayerLevel }[];
+};
+export type TournamentRegistration = {
+  id: number;
+  categoryId: number;
+  format: TournamentFormat;
+  level: PlayerLevel;
+  playerId: number;
+  playerName: string;
+  partnerId: number | null;
+  partnerName: string | null;
+  partnerRegistered?: boolean;
+  createdAt: string;
+  imOwner?: boolean;
+};
+
 export class ApiError extends Error {
   constructor(message: string, public status: number) {
     super(message);

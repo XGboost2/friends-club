@@ -60,6 +60,7 @@ function structuredData(sessions) {
     sport: "Badminton",
     areaServed: { "@type": "City", name: "Prague" },
     address: { "@type": "PostalAddress", addressLocality: "Prague", addressCountry: "CZ" },
+    sameAs: site.social ? Object.values(site.social).filter(Boolean) : undefined,
   };
   const graph = [
     org,

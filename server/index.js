@@ -401,6 +401,243 @@ app.get("/api/my-sessions", async (c) => {
   });
 });
 
+// ---------- tournaments (public + player) ----------
+const TOURNAMENT_LOCK_DAYS = 3;
+const FORMATS = ["singles", "doubles", "mixed"];
+const LEVELS = ["beginner", "intermediate", "advanced"];
+
+function mapTournament(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    startsOn: row.starts_on,
+    startTime: row.start_time,
+    venue: row.venue,
+    description: row.description,
+    status: row.status,
+    createdAt: row.created_at,
+  };
+}
+
+function needsPartner(format) { return format !== "singles"; }
+
+async function tournamentWithCategories(tournamentId, opts = {}) {
+  const t = (await query(`SELECT * FROM tournaments WHERE id = $1`, [tournamentId])).rows[0];
+  if (!t) return null;
+  const cats = (await query(
+    `SELECT c.*,
+       (SELECT count(*) FROM tournament_registrations r WHERE r.category_id = c.id) AS entry_count
+     FROM tournament_categories c WHERE c.tournament_id = $1
+     ORDER BY c.level, c.format`,
+    [tournamentId],
+  )).rows.map((c) => ({
+    id: c.id,
+    format: c.format,
+    level: c.level,
+    isOpen: c.is_open,
+    maxEntries: c.max_entries,
+    entryCount: Number(c.entry_count),
+  }));
+  const players = opts.withPlayers
+    ? (await query(`SELECT id, name, level FROM players WHERE NOT blocked ORDER BY lower(name)`)).rows
+    : undefined;
+  return { ...mapTournament(t), categories: cats, players };
+}
+
+async function myTournamentEntries(playerId, tournamentId) {
+  const { rows } = await query(
+    `SELECT r.*, c.format, c.level, c.tournament_id,
+       me.name AS me_name,
+       COALESCE(p.name, r.partner_name) AS partner_display
+     FROM tournament_registrations r
+     JOIN tournament_categories c ON c.id = r.category_id
+     JOIN players me ON me.id = r.player_id
+     LEFT JOIN players p ON p.id = r.partner_id
+     WHERE c.tournament_id = $1 AND (r.player_id = $2 OR r.partner_id = $2)`,
+    [tournamentId, playerId],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    categoryId: r.category_id,
+    format: r.format,
+    level: r.level,
+    playerId: r.player_id,
+    playerName: r.me_name,
+    partnerId: r.partner_id,
+    partnerName: r.partner_display,
+    partnerRegistered: r.partner_id != null,
+    createdAt: r.created_at,
+    imOwner: r.player_id === playerId,
+  }));
+}
+
+app.get("/api/tournaments", async (c) => {
+  const { rows } = await query(
+    `SELECT * FROM tournaments WHERE status IN ('open','closed') AND starts_on >= current_date - 1
+     ORDER BY starts_on`,
+  );
+  return c.json({ tournaments: rows.map(mapTournament) });
+});
+
+app.get("/api/tournaments/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const detail = await tournamentWithCategories(id, { withPlayers: true });
+  if (!detail || detail.status === "draft") return bad(c, "Tournament not found.", 404);
+  const player = await currentPlayer(c);
+  const mine = player ? await myTournamentEntries(player.id, id) : [];
+  return c.json({ tournament: detail, mine });
+});
+
+async function assertTournamentOpen(client, categoryId) {
+  const row = (await client.query(
+    `SELECT c.id, c.is_open, c.max_entries, c.format, c.level, t.status, t.starts_on
+     FROM tournament_categories c JOIN tournaments t ON t.id = c.tournament_id
+     WHERE c.id = $1 FOR UPDATE`,
+    [categoryId],
+  )).rows[0];
+  if (!row) return { error: "Category not found.", status: 404 };
+  if (row.status !== "open") return { error: "This tournament isn't open for entries yet.", status: 409 };
+  if (!row.is_open) return { error: "That category is closed.", status: 409 };
+  return { row };
+}
+
+async function assertBeforeLock(client, categoryId) {
+  const { rows } = await client.query(
+    `SELECT (t.starts_on - interval '${TOURNAMENT_LOCK_DAYS} days')::date > current_date AS can_change
+     FROM tournament_categories c JOIN tournaments t ON t.id = c.tournament_id
+     WHERE c.id = $1`,
+    [categoryId],
+  );
+  return rows[0]?.can_change;
+}
+
+const partnerNameSchema = z.string().trim().min(1).max(60);
+const registerSchema = z.object({
+  categoryId: z.number().int(),
+  partnerId: z.number().int().optional().nullable(),
+  partnerName: partnerNameSchema.optional().nullable(),
+});
+
+app.post("/api/tournaments/register", async (c) => {
+  const player = await currentPlayer(c);
+  if (!player) return bad(c, "Please sign in to register.", 401);
+  const { data, error } = await parseBody(c, registerSchema);
+  if (error) return bad(c, error);
+  try {
+    const result = await tx(async (client) => {
+      const check = await assertTournamentOpen(client, data.categoryId);
+      if (check.error) return check;
+      const cat = check.row;
+      const hasPartner = data.partnerId != null || (data.partnerName && data.partnerName.trim());
+      if (needsPartner(cat.format) && !hasPartner) return { error: "Pick a partner for this category.", status: 400 };
+      if (!needsPartner(cat.format) && hasPartner) return { error: "Singles category doesn't take a partner.", status: 400 };
+      if (data.partnerId != null && data.partnerName) return { error: "Pick an existing player or type a name — not both.", status: 400 };
+      if (data.partnerId === player.id) return { error: "You can't be your own partner.", status: 400 };
+      if (data.partnerId) {
+        const partner = (await client.query(`SELECT id, blocked FROM players WHERE id = $1`, [data.partnerId])).rows[0];
+        if (!partner || partner.blocked) return { error: "That partner isn't available.", status: 400 };
+        const already = (await client.query(
+          `SELECT id FROM tournament_registrations
+           WHERE category_id = $1 AND (player_id = $2 OR partner_id = $2)`,
+          [data.categoryId, data.partnerId],
+        )).rows[0];
+        if (already) return { error: "That player is already in this category.", status: 409 };
+      }
+      if (cat.max_entries) {
+        const count = Number((await client.query(
+          `SELECT count(*) AS n FROM tournament_registrations WHERE category_id = $1`,
+          [data.categoryId],
+        )).rows[0].n);
+        if (count >= cat.max_entries) return { error: "This category is full.", status: 409 };
+      }
+      const row = (await client.query(
+        `INSERT INTO tournament_registrations (category_id, player_id, partner_id, partner_name)
+         VALUES ($1,$2,$3,$4) RETURNING id`,
+        [data.categoryId, player.id, data.partnerId || null, data.partnerId ? null : (data.partnerName?.trim() || null)],
+      )).rows[0];
+      return { ok: true, id: row.id };
+    });
+    if (result.error) return bad(c, result.error, result.status);
+    return c.json({ ok: true, id: result.id });
+  } catch (e) {
+    if (e.code === "23505") return bad(c, "You (or your partner) are already in that category.", 409);
+    throw e;
+  }
+});
+
+app.patch("/api/tournaments/registrations/:id", async (c) => {
+  const player = await currentPlayer(c);
+  if (!player) return bad(c, "Please sign in.", 401);
+  const id = Number(c.req.param("id"));
+  const { data, error } = await parseBody(c, z.object({
+    partnerId: z.number().int().nullable().optional(),
+    partnerName: partnerNameSchema.nullable().optional(),
+  }));
+  if (error) return bad(c, error);
+  if (data.partnerId != null && data.partnerName) return bad(c, "Pick an existing player or type a name — not both.");
+  try {
+    const result = await tx(async (client) => {
+      const reg = (await client.query(
+        `SELECT r.*, c.format FROM tournament_registrations r
+         JOIN tournament_categories c ON c.id = r.category_id
+         WHERE r.id = $1 FOR UPDATE`,
+        [id],
+      )).rows[0];
+      if (!reg) return { error: "Registration not found.", status: 404 };
+      if (reg.player_id !== player.id) return { error: "Only the person who booked this entry can change the partner.", status: 403 };
+      if (!needsPartner(reg.format)) return { error: "Singles has no partner to change.", status: 400 };
+      const canChange = await assertBeforeLock(client, reg.category_id);
+      if (!canChange) return { error: `Partner changes lock ${TOURNAMENT_LOCK_DAYS} days before the tournament.`, status: 409 };
+      if (data.partnerId === player.id) return { error: "You can't be your own partner.", status: 400 };
+      if (data.partnerId != null) {
+        const partner = (await client.query(`SELECT id, blocked FROM players WHERE id = $1`, [data.partnerId])).rows[0];
+        if (!partner || partner.blocked) return { error: "That partner isn't available.", status: 400 };
+        const clash = (await client.query(
+          `SELECT id FROM tournament_registrations
+           WHERE category_id = $1 AND id <> $2 AND (player_id = $3 OR partner_id = $3)`,
+          [reg.category_id, id, data.partnerId],
+        )).rows[0];
+        if (clash) return { error: "That player is already in this category.", status: 409 };
+      }
+      const nextPartnerId = data.partnerId ?? null;
+      const nextPartnerName = data.partnerId != null ? null : (data.partnerName?.trim() || null);
+      if (!nextPartnerId && !nextPartnerName) return { error: "Pick a partner.", status: 400 };
+      await client.query(
+        `UPDATE tournament_registrations SET partner_id = $1, partner_name = $2 WHERE id = $3`,
+        [nextPartnerId, nextPartnerName, id],
+      );
+      return { ok: true };
+    });
+    if (result.error) return bad(c, result.error, result.status);
+    return c.json({ ok: true });
+  } catch (e) {
+    if (e.code === "23505") return bad(c, "That partner is already taken in this category.", 409);
+    throw e;
+  }
+});
+
+app.delete("/api/tournaments/registrations/:id", async (c) => {
+  const player = await currentPlayer(c);
+  if (!player) return bad(c, "Please sign in.", 401);
+  const id = Number(c.req.param("id"));
+  const result = await tx(async (client) => {
+    const reg = (await client.query(
+      `SELECT r.*, c.tournament_id FROM tournament_registrations r
+       JOIN tournament_categories c ON c.id = r.category_id
+       WHERE r.id = $1 FOR UPDATE`,
+      [id],
+    )).rows[0];
+    if (!reg) return { error: "Registration not found.", status: 404 };
+    if (reg.player_id !== player.id && reg.partner_id !== player.id) return { error: "Not your entry.", status: 403 };
+    const canChange = await assertBeforeLock(client, reg.category_id);
+    if (!canChange) return { error: `Withdrawals lock ${TOURNAMENT_LOCK_DAYS} days before the tournament.`, status: 409 };
+    await client.query(`DELETE FROM tournament_registrations WHERE id = $1`, [id]);
+    return { ok: true };
+  });
+  if (result.error) return bad(c, result.error, result.status);
+  return c.json({ ok: true });
+});
+
 // ---------- admin auth ----------
 const loginAttempts = new Map();
 function tooManyAttempts(ip) {
@@ -729,6 +966,205 @@ app.patch("/api/admin/players/:id", async (c) => {
 app.delete("/api/admin/players/:id", async (c) => {
   const id = Number(c.req.param("id"));
   await query(`DELETE FROM players WHERE id = $1`, [id]);
+  return c.json({ ok: true });
+});
+
+// ---------- admin: tournaments ----------
+const tournamentFields = z.object({
+  name: z.string().trim().min(1, "enter a name").max(120),
+  startsOn: isoDate,
+  startTime: time.optional().nullable(),
+  venue: z.string().trim().min(1, "enter a venue").max(120),
+  description: z.string().trim().max(500).optional().nullable(),
+});
+
+app.get("/api/admin/tournaments", async (c) => {
+  const { rows } = await query(
+    `SELECT t.*, (SELECT count(*) FROM tournament_registrations r
+                   JOIN tournament_categories c ON c.id = r.category_id
+                   WHERE c.tournament_id = t.id) AS entry_count
+     FROM tournaments t WHERE starts_on >= current_date - 30 ORDER BY starts_on DESC`,
+  );
+  return c.json({ tournaments: rows.map((r) => ({ ...mapTournament(r), entryCount: Number(r.entry_count) })) });
+});
+
+app.post("/api/admin/tournaments", async (c) => {
+  const { data, error } = await parseBody(c, tournamentFields);
+  if (error) return bad(c, error);
+  const t = (await query(
+    `INSERT INTO tournaments (name, starts_on, start_time, venue, description) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [data.name, data.startsOn, data.startTime || null, data.venue, data.description || null],
+  )).rows[0];
+  return c.json({ tournament: mapTournament(t) });
+});
+
+app.get("/api/admin/tournaments/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const detail = await tournamentWithCategories(id, { withPlayers: true });
+  if (!detail) return bad(c, "Tournament not found.", 404);
+  const regs = (await query(
+    `SELECT r.*, c.format, c.level, p1.name AS player_name,
+       COALESCE(p2.name, r.partner_name) AS partner_display
+     FROM tournament_registrations r
+     JOIN tournament_categories c ON c.id = r.category_id
+     JOIN players p1 ON p1.id = r.player_id
+     LEFT JOIN players p2 ON p2.id = r.partner_id
+     WHERE c.tournament_id = $1
+     ORDER BY c.level, c.format, r.created_at`,
+    [id],
+  )).rows.map((r) => ({
+    id: r.id,
+    categoryId: r.category_id,
+    format: r.format,
+    level: r.level,
+    playerId: r.player_id,
+    playerName: r.player_name,
+    partnerId: r.partner_id,
+    partnerName: r.partner_display,
+    partnerRegistered: r.partner_id != null,
+    createdAt: r.created_at,
+  }));
+  return c.json({ tournament: detail, registrations: regs });
+});
+
+app.patch("/api/admin/tournaments/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { data, error } = await parseBody(c, z.object({
+    name: tournamentFields.shape.name.optional(),
+    startsOn: isoDate.optional(),
+    startTime: time.optional().nullable(),
+    venue: tournamentFields.shape.venue.optional(),
+    description: tournamentFields.shape.description,
+    status: z.enum(["draft", "open", "closed", "completed"]).optional(),
+  }));
+  if (error) return bad(c, error);
+  const columns = { name: "name", startsOn: "starts_on", startTime: "start_time", venue: "venue", description: "description", status: "status" };
+  const sets = [], values = [];
+  for (const [k, col] of Object.entries(columns)) {
+    if (data[k] !== undefined) {
+      values.push(k === "description" || k === "startTime" ? (data[k] || null) : data[k]);
+      sets.push(`${col} = $${values.length}`);
+    }
+  }
+  if (!sets.length) return bad(c, "Nothing to update.");
+  values.push(id);
+  const { rows } = await query(`UPDATE tournaments SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING *`, values);
+  if (!rows[0]) return bad(c, "Tournament not found.", 404);
+  return c.json({ tournament: mapTournament(rows[0]) });
+});
+
+app.delete("/api/admin/tournaments/:id", async (c) => {
+  await query(`DELETE FROM tournaments WHERE id = $1`, [Number(c.req.param("id"))]);
+  return c.json({ ok: true });
+});
+
+const categoryFields = z.object({
+  format: z.enum(FORMATS),
+  level: z.enum(LEVELS),
+  isOpen: z.boolean().default(true),
+  maxEntries: z.number().int().positive().max(500).optional().nullable(),
+});
+
+app.post("/api/admin/tournaments/:id/categories", async (c) => {
+  const tournamentId = Number(c.req.param("id"));
+  const { data, error } = await parseBody(c, categoryFields);
+  if (error) return bad(c, error);
+  try {
+    const row = (await query(
+      `INSERT INTO tournament_categories (tournament_id, format, level, is_open, max_entries)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [tournamentId, data.format, data.level, data.isOpen, data.maxEntries || null],
+    )).rows[0];
+    return c.json({ category: { id: row.id, format: row.format, level: row.level, isOpen: row.is_open, maxEntries: row.max_entries, entryCount: 0 } });
+  } catch (e) {
+    if (e.code === "23505") return bad(c, "That format + level is already added.", 409);
+    throw e;
+  }
+});
+
+app.patch("/api/admin/tournaments/categories/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { data, error } = await parseBody(c, z.object({
+    isOpen: z.boolean().optional(),
+    maxEntries: z.number().int().positive().max(500).nullable().optional(),
+    format: z.enum(FORMATS).optional(),
+    level: z.enum(LEVELS).optional(),
+  }));
+  if (error) return bad(c, error);
+  const columns = { isOpen: "is_open", maxEntries: "max_entries", format: "format", level: "level" };
+  const sets = [], values = [];
+  for (const [k, col] of Object.entries(columns)) {
+    if (data[k] !== undefined) { values.push(data[k]); sets.push(`${col} = $${values.length}`); }
+  }
+  if (!sets.length) return bad(c, "Nothing to update.");
+  values.push(id);
+  try {
+    const { rows } = await query(`UPDATE tournament_categories SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING *`, values);
+    if (!rows[0]) return bad(c, "Category not found.", 404);
+    return c.json({ ok: true });
+  } catch (e) {
+    if (e.code === "23505") return bad(c, "Another category already uses that format + level.", 409);
+    throw e;
+  }
+});
+
+app.delete("/api/admin/tournaments/categories/:id", async (c) => {
+  await query(`DELETE FROM tournament_categories WHERE id = $1`, [Number(c.req.param("id"))]);
+  return c.json({ ok: true });
+});
+
+app.patch("/api/admin/tournaments/registrations/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { data, error } = await parseBody(c, z.object({
+    categoryId: z.number().int().optional(),
+    playerId: z.number().int().optional(),
+    partnerId: z.number().int().nullable().optional(),
+    partnerName: partnerNameSchema.nullable().optional(),
+  }));
+  if (error) return bad(c, error);
+  if (data.partnerId != null && data.partnerName) return bad(c, "Pick an existing player or type a name — not both.");
+  try {
+    const result = await tx(async (client) => {
+      const reg = (await client.query(`SELECT * FROM tournament_registrations WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+      if (!reg) return { error: "Registration not found.", status: 404 };
+      const nextCat = data.categoryId ?? reg.category_id;
+      const nextPlayer = data.playerId ?? reg.player_id;
+      const partnerTouched = data.partnerId !== undefined || data.partnerName !== undefined;
+      const nextPartnerId = partnerTouched ? (data.partnerId ?? null) : reg.partner_id;
+      const nextPartnerName = partnerTouched
+        ? (nextPartnerId != null ? null : (data.partnerName?.trim() || null))
+        : reg.partner_name;
+      if (nextPartnerId === nextPlayer && nextPartnerId != null) return { error: "Player and partner must differ.", status: 400 };
+      const cat = (await client.query(`SELECT format FROM tournament_categories WHERE id = $1`, [nextCat])).rows[0];
+      if (!cat) return { error: "Target category not found.", status: 404 };
+      const hasPartner = nextPartnerId != null || (nextPartnerName && nextPartnerName.trim());
+      if (needsPartner(cat.format) && !hasPartner) return { error: "This category needs a partner.", status: 400 };
+      if (!needsPartner(cat.format) && hasPartner) return { error: "Singles has no partner.", status: 400 };
+      const clash = (await client.query(
+        `SELECT id FROM tournament_registrations
+         WHERE category_id = $1 AND id <> $2 AND (
+           player_id = $3 OR partner_id = $3
+           ${nextPartnerId ? "OR player_id = $4 OR partner_id = $4" : ""}
+         )`,
+        nextPartnerId ? [nextCat, id, nextPlayer, nextPartnerId] : [nextCat, id, nextPlayer],
+      )).rows[0];
+      if (clash) return { error: "Player or partner is already in that category.", status: 409 };
+      await client.query(
+        `UPDATE tournament_registrations SET category_id = $1, player_id = $2, partner_id = $3, partner_name = $4 WHERE id = $5`,
+        [nextCat, nextPlayer, nextPartnerId, nextPartnerName, id],
+      );
+      return { ok: true };
+    });
+    if (result.error) return bad(c, result.error, result.status);
+    return c.json({ ok: true });
+  } catch (e) {
+    if (e.code === "23505") return bad(c, "Duplicate registration for that category.", 409);
+    throw e;
+  }
+});
+
+app.delete("/api/admin/tournaments/registrations/:id", async (c) => {
+  await query(`DELETE FROM tournament_registrations WHERE id = $1`, [Number(c.req.param("id"))]);
   return c.json({ ok: true });
 });
 

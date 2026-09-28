@@ -11,10 +11,12 @@ import MySessions from "@/pages/my-sessions";
 import AdminLogin, { RequireAdmin } from "@/pages/admin/login";
 import { Spinner } from "@/components/ui/field";
 
+const Tournament = lazy(() => import("@/pages/tournament"));
 const AdminPolls = lazy(() => import("@/pages/admin/polls"));
 const AdminCheckin = lazy(() => import("@/pages/admin/checkin"));
 const AdminRecords = lazy(() => import("@/pages/admin/records"));
 const AdminPlayers = lazy(() => import("@/pages/admin/players"));
+const AdminTournaments = lazy(() => import("@/pages/admin/tournaments"));
 const loading = <div className="grid min-h-[50vh] place-items-center text-muted-foreground"><Spinner className="size-6" /></div>;
 
 function App() {
@@ -27,12 +29,14 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/my-sessions" element={<MySessions />} />
+              <Route path="/tournament" element={<Tournament />} />
               <Route path="/admin/login" element={<AdminLogin />} />
               <Route path="/admin" element={<Navigate to="/admin/polls" replace />} />
               <Route path="/admin/polls" element={<RequireAdmin><AdminPolls /></RequireAdmin>} />
               <Route path="/admin/checkin" element={<RequireAdmin><AdminCheckin /></RequireAdmin>} />
               <Route path="/admin/players" element={<RequireAdmin><AdminPlayers /></RequireAdmin>} />
               <Route path="/admin/records" element={<RequireAdmin><AdminRecords /></RequireAdmin>} />
+              <Route path="/admin/tournaments" element={<RequireAdmin><AdminTournaments /></RequireAdmin>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             </Suspense>
