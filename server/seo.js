@@ -15,6 +15,8 @@ const jsonLd = (data) => JSON.stringify(data).replace(/</g, "\\u003c");
 const PAGES = {
   "/": { title: site.title, description: site.description, index: true },
   "/my-sessions": { title: "My sessions — Friends Club", description: "Your upcoming Friends Club badminton sessions.", index: false },
+  "/sign-in": { title: "Sign in — Friends Club", description: "Sign in to Friends Club.", index: false },
+  "/sign-up": { title: "Create an account — Friends Club", description: "Join Friends Club to book your next badminton session.", index: false },
   "/admin/login": { title: "Admin — Friends Club", description: "Friends Club admin sign-in.", index: false },
   "/admin/polls": { title: "Polls — Friends Club admin", description: "Manage badminton polls.", index: false },
   "/admin/checkin": { title: "Check-in — Friends Club admin", description: "Multisport check-in.", index: false },
