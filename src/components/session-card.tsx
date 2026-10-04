@@ -1,4 +1,4 @@
-import { Check, Clock3, Layers3, MapPin, MoveUpRight, Users, Lock } from "lucide-react";
+import { Check, Clock3, Hourglass, Layers3, MapPin, MoveUpRight, Users, Lock } from "lucide-react";
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from "framer-motion";
 import type { MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
@@ -97,6 +97,10 @@ export function SessionCard({ session, joined, onJoin, onShowPlayers }: { sessio
         </span>
         {session.notes && <p className="col-span-2 rounded-lg bg-soft px-3 py-2 text-xs leading-relaxed">{session.notes}</p>}
       </div>
+      <p className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Hourglass size={11} className="shrink-0 text-muted-foreground/70" />
+        Voting closes 24 h before start · Cancel up to 25 h before start
+      </p>
       <div className="mt-4 flex items-center justify-between gap-3">
         <button onClick={onShowPlayers} className="flex min-w-0 items-center gap-2.5 rounded-lg text-left transition hover:opacity-80">
           <div className="flex -space-x-2">
