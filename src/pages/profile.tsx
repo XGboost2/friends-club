@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { AtSign, LogOut, Mail, Phone, ShieldCheck, Sparkles, User } from "lucide-react";
+import { AtSign, Check, LogOut, Mail, Phone, ShieldCheck, Sparkles, User } from "lucide-react";
 import { toast } from "sonner";
-import { Navigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Eyebrow, Field, Spinner } from "@/components/ui/field";
 import { api, type Player, type PlayerLevel } from "@/lib/api";
@@ -16,10 +16,12 @@ const LEVELS: { value: PlayerLevel; label: string; hint: string }[] = [
 
 export default function ProfilePage() {
   const { player, loading, setPlayer, logout } = usePlayer();
+  const navigate = useNavigate();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [level, setLevel] = useState<PlayerLevel>("intermediate");
   const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState(0);
 
   useEffect(() => {
     if (player) {
@@ -44,11 +46,14 @@ export default function ProfilePage() {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim() || !phone.trim()) return toast.error("Name and phone are required.");
+    const wasIncomplete = incomplete;
     setBusy(true);
     try {
       const res = await api<{ player: Player }>("/api/me", { method: "PATCH", body: { name: name.trim(), phone: phone.trim(), level } });
       setPlayer(res.player);
       toast.success("Profile updated.");
+      setSavedAt(Date.now());
+      if (wasIncomplete) navigate("/");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't save.");
     } finally {
@@ -128,7 +133,7 @@ export default function ProfilePage() {
             <LogOut size={14} /> Sign out
           </Button>
           <Button type="submit" variant="neon" size="lg" disabled={busy || !dirty}>
-            {busy && <Spinner />} Save changes
+            {busy ? <Spinner /> : savedAt && !dirty ? <Check size={16} /> : null} {savedAt && !dirty ? "Saved" : "Save changes"}
           </Button>
         </div>
 
