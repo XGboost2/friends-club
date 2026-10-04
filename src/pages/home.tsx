@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowDownRight, ArrowRight, CalendarDays, MapPin, Sparkles } from "lucide-react";
+import { useClerk } from "@clerk/react";
 import { AboutSection } from "@/components/about-section";
 import { MonthCalendar } from "@/components/month-calendar";
 import { SessionCard } from "@/components/session-card";
 import { JoinSheet } from "@/components/join-sheet";
 import { AttendeesSheet } from "@/components/attendees-sheet";
-import { AuthSheet } from "@/components/auth-sheet";
 import { ConfirmationCard, type Confirmation } from "@/components/confirmation-card";
 import { Button } from "@/components/ui/button";
 import { Eyebrow, Spinner } from "@/components/ui/field";
@@ -16,13 +16,13 @@ import { fmt, isoDay } from "@/lib/utils";
 
 export default function Home() {
   const { player } = usePlayer();
+  const { openSignIn } = useClerk();
   const [today, setToday] = useState(() => isoDay(new Date()));
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [mine, setMine] = useState<Set<number>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
   const [joining, setJoining] = useState<Session | null>(null);
   const [pendingJoin, setPendingJoin] = useState<Session | null>(null);
-  const [authOpen, setAuthOpen] = useState(false);
   const [showPlayers, setShowPlayers] = useState<Session | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +48,14 @@ export default function Home() {
     const t = setInterval(load, 30000);
     return () => clearInterval(t);
   }, [load]);
+
+  // Resume a "join" after the Clerk sign-in modal completes.
+  useEffect(() => {
+    if (player && pendingJoin) {
+      setJoining(pendingJoin);
+      setPendingJoin(null);
+    }
+  }, [player, pendingJoin]);
 
   const marked = useMemo(() => {
     const map = new Map<string, { voted: boolean; count: number }>();
@@ -165,7 +173,7 @@ export default function Home() {
               <AnimatePresence mode="wait">
                 <motion.div key={selected ?? "none"} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.23 }} className="space-y-4">
                   {chosen.length ? (
-                    chosen.map((s) => <SessionCard key={s.id} session={s} joined={mine.has(s.id)} onJoin={() => (player ? setJoining(s) : (setPendingJoin(s), setAuthOpen(true)))} onShowPlayers={() => setShowPlayers(s)} />)
+                    chosen.map((s) => <SessionCard key={s.id} session={s} joined={mine.has(s.id)} onJoin={() => (player ? setJoining(s) : (setPendingJoin(s), openSignIn()))} onShowPlayers={() => setShowPlayers(s)} />)
                   ) : (
                     <div className="glass-panel flex min-h-72 flex-col items-center justify-center rounded-2xl px-8 text-center">
                       <div className="mb-5 grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary">
@@ -199,16 +207,6 @@ export default function Home() {
           setConfirmation({ session, guests, multisport });
           setMine((m) => new Set(m).add(session.id));
           setSessions((list) => list?.map((s) => (s.id === session.id ? session : s)) ?? list);
-        }}
-      />
-      <AuthSheet
-        open={authOpen}
-        onClose={() => { setAuthOpen(false); setPendingJoin(null); }}
-        onSignedIn={() => {
-          setAuthOpen(false);
-          if (pendingJoin) setJoining(pendingJoin);
-          setPendingJoin(null);
-          load();
         }}
       />
       <AttendeesSheet session={showPlayers} onClose={() => setShowPlayers(null)} />

@@ -1,5 +1,6 @@
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { CalendarDays, ChevronRight, ClipboardList, History, ScanLine, Ticket, House, LogOut, LogIn, Trophy, Users2 } from "lucide-react";
+import { CalendarDays, ChevronRight, ClipboardList, History, ScanLine, Ticket, House, LogOut, LogIn, Trophy, UserPlus, Users2 } from "lucide-react";
+import { SignInButton, SignUpButton } from "@clerk/react";
 
 function InstagramIcon({ size = 16 }: { size?: number }) {
   return (
@@ -19,10 +20,9 @@ function FacebookIcon({ size = 16 }: { size?: number }) {
   );
 }
 import { motion } from "framer-motion";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import site from "../../shared/site.json";
 import { AmbientBackground, ShuttleLogo } from "./brand";
-import { AuthSheet } from "./auth-sheet";
 import { cn } from "@/lib/utils";
 import { useAdmin } from "@/lib/admin";
 import { usePlayer } from "@/lib/player";
@@ -61,7 +61,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const admin = pathname.startsWith("/admin");
   const { admin: me, logout } = useAdmin();
   const { player, logout: playerLogout } = usePlayer();
-  const [authOpen, setAuthOpen] = useState(false);
   const signedIn = admin && me?.approved;
   const links = admin ? (signedIn ? [{ to: "/", label: "Sessions", icon: House, end: true }, ...adminLinks] : []) : playerLinks;
 
@@ -100,9 +99,18 @@ export function AppShell({ children }: { children: ReactNode }) {
             </button>
           </div>
         ) : (
-          <button onClick={() => setAuthOpen(true)} className="flex items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3.5 py-2 text-xs font-semibold text-primary transition hover:bg-primary/20">
-            <LogIn size={14} /> <span className="hidden sm:inline">Sign in</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <SignInButton mode="modal">
+              <button className="flex items-center gap-2 rounded-full border border-border bg-soft px-3.5 py-2 text-xs font-semibold text-muted-foreground transition hover:text-foreground">
+                <LogIn size={14} /> <span className="hidden sm:inline">Sign in</span>
+              </button>
+            </SignInButton>
+            <SignUpButton mode="modal">
+              <button className="flex items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3.5 py-2 text-xs font-semibold text-primary transition hover:bg-primary/20">
+                <UserPlus size={14} /> <span className="hidden sm:inline">Register</span>
+              </button>
+            </SignUpButton>
+          </div>
         )}
       </header>
       <motion.main key={pathname} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className={cn("relative z-10 flex-1", links.length ? "pb-24 md:pb-0" : "")}>
@@ -133,7 +141,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
       )}
-      {!admin && <AuthSheet open={authOpen} onClose={() => setAuthOpen(false)} />}
     </div>
   );
 }

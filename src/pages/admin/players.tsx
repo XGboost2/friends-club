@@ -40,7 +40,7 @@ export default function AdminPlayers() {
     if (!players) return [];
     const query = q.trim().toLowerCase();
     if (!query) return players;
-    return players.filter((p) => p.name.toLowerCase().includes(query) || p.email.toLowerCase().includes(query) || p.phone.toLowerCase().includes(query));
+    return players.filter((p) => p.name.toLowerCase().includes(query) || p.email.toLowerCase().includes(query) || (p.phone ?? "").toLowerCase().includes(query));
   }, [players, q]);
 
   async function toggleBlocked(p: AdminPlayer) {
@@ -145,14 +145,18 @@ export default function AdminPlayers() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="truncate font-display text-lg font-bold">{p.name}</h2>
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${levelClass[p.level]}`}>{p.level}</span>
+                      {p.level ? (
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${levelClass[p.level]}`}>{p.level}</span>
+                      ) : (
+                        <span className="rounded-full border border-border bg-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">No level</span>
+                      )}
                       {p.blocked && (
                         <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-destructive">Blocked</span>
                       )}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1.5"><Mail size={13} /> {p.email}</span>
-                      <span className="flex items-center gap-1.5"><Phone size={13} /> {p.phone}</span>
+                      <span className="flex items-center gap-1.5"><Phone size={13} /> {p.phone || "—"}</span>
                     </div>
                   </div>
                 </div>

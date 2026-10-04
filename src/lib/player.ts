@@ -1,4 +1,5 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { useAuth, useClerk } from "@clerk/react";
 import { api, type Player } from "./api";
 
 type PlayerState = {
@@ -12,9 +13,17 @@ type PlayerState = {
 const PlayerContext = createContext<PlayerState | null>(null);
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
+  const { isLoaded, isSignedIn } = useAuth();
+  const { signOut } = useClerk();
   const [player, setPlayer] = useState<Player | null>(null);
   const [loading, setLoading] = useState(true);
+
   const refresh = useCallback(async () => {
+    if (!isSignedIn) {
+      setPlayer(null);
+      setLoading(false);
+      return;
+    }
     try {
       const { player } = await api<{ player: Player | null }>("/api/me");
       setPlayer(player);
@@ -23,16 +32,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isSignedIn]);
+
   const logout = useCallback(async () => {
-    await api("/api/auth/logout", { method: "POST" }).catch(() => {});
-    // Wipe device-only convenience data so a shared browser doesn't leak card details.
     try { localStorage.removeItem(CARD_KEY); } catch { /* ignore */ }
     setPlayer(null);
-  }, []);
+    await signOut();
+  }, [signOut]);
+
   useEffect(() => {
+    if (!isLoaded) return;
     refresh();
-  }, [refresh]);
+  }, [isLoaded, refresh]);
+
   return createElement(PlayerContext.Provider, { value: { player, loading, refresh, setPlayer, logout } }, children);
 }
 

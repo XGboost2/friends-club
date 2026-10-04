@@ -7,21 +7,23 @@ import { existsSync } from "node:fs";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { createClerkClient, verifyToken } from "@clerk/backend";
 import { CLUB_TZ, query, tx, migrate, cleanupOldRecords, storageStats } from "./db.js";
 import { renderPage, robotsTxt, sitemapXml } from "./seo.js";
-import { sendOtp } from "./email.js";
 
 const app = new Hono();
 const isProd = process.env.NODE_ENV === "production";
 const COOKIE = "fc_admin";
-const PLAYER_COOKIE = "fc_player";
 const SESSION_DAYS = 30;
-const PLAYER_SESSION_DAYS = 90;
 const CANCEL_LOCK_HOURS = 25;
 const AUTO_CLOSE_HOURS = 24;
-const OTP_TTL_MINUTES = 10;
-const OTP_MAX_ATTEMPTS = 5;
-const OTP_RESEND_COOLDOWN_SECONDS = 30;
+
+const CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY;
+if (!CLERK_SECRET_KEY) {
+  console.error("CLERK_SECRET_KEY is not set. Add it to your .env — see .env.example.");
+  process.exit(1);
+}
+const clerkClient = createClerkClient({ secretKey: CLERK_SECRET_KEY });
 
 // ---------- helpers ----------
 const cardKey = (value) => (value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -82,147 +84,84 @@ const SESSION_STATS_SQL = `
     COALESCE((SELECT json_agg(r.player_name ORDER BY r.created_at) FROM registrations r WHERE r.session_id = s.id), '[]'::json) AS players
   FROM sessions s`;
 
-// ---------- shared rate limiting ----------
-function makeRateLimiter({ max, windowMs, keyFn }) {
-  const store = new Map();
-  return function limited(c) {
-    const key = keyFn(c);
-    const now = Date.now();
-    const entry = store.get(key) || { count: 0, since: now };
-    if (now - entry.since > windowMs) { entry.count = 0; entry.since = now; }
-    entry.count += 1;
-    store.set(key, entry);
-    return entry.count > max;
-  };
-}
 const clientIp = (c) => c.req.header("x-forwarded-for")?.split(",")[0].trim() || c.env?.incoming?.socket?.remoteAddress || "local";
-const otpIpLimiter = makeRateLimiter({ max: 20, windowMs: 60 * 60 * 1000, keyFn: clientIp });
 
-// ---------- player auth ----------
-async function currentPlayer(c) {
-  const token = getCookie(c, PLAYER_COOKIE);
-  if (!token) return null;
-  const { rows } = await query(
-    `SELECT p.* FROM player_sessions s JOIN players p ON p.id = s.player_id
-     WHERE s.token_hash = $1 AND s.expires_at > now() AND NOT p.blocked`,
-    [hashToken(token)],
-  );
-  return rows[0] || null;
-}
-
-async function issuePlayerSession(c, playerId) {
-  const token = crypto.randomBytes(32).toString("hex");
-  await query(
-    `INSERT INTO player_sessions (token_hash, player_id, expires_at) VALUES ($1, $2, now() + interval '${PLAYER_SESSION_DAYS} days')`,
-    [hashToken(token), playerId],
-  );
-  setCookie(c, PLAYER_COOKIE, token, { httpOnly: true, secure: isProd, sameSite: "Lax", path: "/", maxAge: PLAYER_SESSION_DAYS * 86400 });
-}
+// ---------- player auth (Clerk-backed) ----------
 
 const emailSchema = z.email("enter a valid email").trim().toLowerCase();
 const phoneSchema = z.string().trim().min(6, "enter a valid phone number").max(30);
 const levelSchema = z.enum(["beginner", "intermediate", "advanced"]);
 const nameSchema = z.string().trim().min(1, "enter your name").max(60);
-const purposeSchema = z.enum(["register", "login"]);
 
-app.post("/api/auth/request-otp", async (c) => {
-  if (otpIpLimiter(c)) return bad(c, "Too many requests from this network. Try again later.", 429);
-  const { data, error } = await parseBody(c, z.object({ email: emailSchema, purpose: purposeSchema }));
-  if (error) return bad(c, error);
-  const uniform = c.json({ ok: true, expiresInMinutes: OTP_TTL_MINUTES });
-
-  const existing = (await query(`SELECT id, blocked FROM players WHERE email = $1`, [data.email])).rows[0];
-  // Silent no-op if the purpose doesn't match the account state, or if the account is blocked.
-  // The uniform response avoids leaking whether the email is registered.
-  const validCase =
-    (data.purpose === "register" && !existing) ||
-    (data.purpose === "login" && existing && !existing.blocked);
-  if (!validCase) return uniform;
-
-  const last = (await query(`SELECT created_at FROM otp_codes WHERE email = $1 AND purpose = $2`, [data.email, data.purpose])).rows[0];
-  if (last) {
-    const secs = (Date.now() - new Date(last.created_at).getTime()) / 1000;
-    if (secs < OTP_RESEND_COOLDOWN_SECONDS) {
-      return bad(c, `Wait ${Math.ceil(OTP_RESEND_COOLDOWN_SECONDS - secs)}s before requesting another code.`, 429);
-    }
-  }
-
-  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
-  const codeHash = await bcrypt.hash(code, 10);
-  await query(
-    `INSERT INTO otp_codes (email, purpose, code_hash, attempts, expires_at, created_at)
-     VALUES ($1, $2, $3, 0, now() + interval '${OTP_TTL_MINUTES} minutes', now())
-     ON CONFLICT (email, purpose) DO UPDATE
-       SET code_hash = EXCLUDED.code_hash, attempts = 0, expires_at = EXCLUDED.expires_at, created_at = now()`,
-    [data.email, data.purpose, codeHash],
-  );
+async function verifyClerkBearer(c) {
+  const header = c.req.header("Authorization");
+  if (!header?.startsWith("Bearer ")) return null;
+  const token = header.slice(7).trim();
+  if (!token) return null;
   try {
-    await sendOtp(data.email, code, data.purpose, OTP_TTL_MINUTES);
+    return await verifyToken(token, { secretKey: CLERK_SECRET_KEY });
   } catch (e) {
-    console.error("sendOtp failed", e);
-    return bad(c, "We couldn't send the code right now. Try again in a moment.", 502);
+    console.warn("Clerk token verification failed:", e?.message || e);
+    return null;
   }
-  return c.json({ ok: true, expiresInMinutes: OTP_TTL_MINUTES });
-});
+}
 
-app.post("/api/auth/verify-otp", async (c) => {
-  const { data, error } = await parseBody(c, z.object({
-    email: emailSchema,
-    purpose: purposeSchema,
-    code: z.string().trim().regex(/^\d{6}$/, "enter the 6-digit code"),
-    // register only:
-    name: nameSchema.optional(),
-    phone: phoneSchema.optional(),
-    level: levelSchema.optional(),
-  }));
-  if (error) return bad(c, error);
+/**
+ * Resolve the player row backing the current Clerk session. On first access we
+ * link to an existing row by email (manual-admin-created players) or provision
+ * a new one from Clerk's profile data. Phone/level stay NULL until the player
+ * completes their profile.
+ */
+async function currentPlayer(c) {
+  const payload = await verifyClerkBearer(c);
+  if (!payload?.sub) return null;
+  const clerkUserId = payload.sub;
 
-  const otp = (await query(`SELECT * FROM otp_codes WHERE email = $1 AND purpose = $2`, [data.email, data.purpose])).rows[0];
-  if (!otp) return bad(c, "Request a code first.", 400);
-  if (new Date(otp.expires_at).getTime() < Date.now()) {
-    await query(`DELETE FROM otp_codes WHERE email = $1 AND purpose = $2`, [data.email, data.purpose]);
-    return bad(c, "That code has expired. Request a new one.", 410);
-  }
-  if (otp.attempts >= OTP_MAX_ATTEMPTS) {
-    await query(`DELETE FROM otp_codes WHERE email = $1 AND purpose = $2`, [data.email, data.purpose]);
-    return bad(c, "Too many wrong attempts. Request a new code.", 429);
-  }
-  const match = await bcrypt.compare(data.code, otp.code_hash);
-  if (!match) {
-    await query(`UPDATE otp_codes SET attempts = attempts + 1 WHERE email = $1 AND purpose = $2`, [data.email, data.purpose]);
-    return bad(c, "Wrong code. Try again.", 401);
-  }
-  // Code good: consume it.
-  await query(`DELETE FROM otp_codes WHERE email = $1 AND purpose = $2`, [data.email, data.purpose]);
+  const existing = (await query(`SELECT * FROM players WHERE clerk_user_id = $1`, [clerkUserId])).rows[0];
+  if (existing) return existing.blocked ? null : existing;
 
-  let player;
-  if (data.purpose === "register") {
-    if (!data.name || !data.phone || !data.level) return bad(c, "Enter your name, phone, and level.", 400);
-    try {
-      player = (await query(
-        `INSERT INTO players (email, phone, name, level) VALUES ($1, $2, $3, $4) RETURNING *`,
-        [data.email, data.phone, data.name, data.level],
-      )).rows[0];
-    } catch (e) {
-      if (e.code === "23505") return bad(c, "An account with this email already exists. Sign in instead.", 409);
-      throw e;
+  // First access with this Clerk user — fetch profile and link or create.
+  let clerkUser;
+  try {
+    clerkUser = await clerkClient.users.getUser(clerkUserId);
+  } catch (e) {
+    console.warn("Clerk user fetch failed:", e?.message || e);
+    return null;
+  }
+  const primaryEmail = clerkUser.emailAddresses?.find((e) => e.id === clerkUser.primaryEmailAddressId)?.emailAddress
+    || clerkUser.emailAddresses?.[0]?.emailAddress;
+  if (!primaryEmail) return null;
+  const email = primaryEmail.toLowerCase();
+  const displayName = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim()
+    || clerkUser.username
+    || email.split("@")[0];
+
+  // Link an existing player row by email (e.g. one an admin created manually).
+  const byEmail = (await query(`SELECT * FROM players WHERE email = $1`, [email])).rows[0];
+  if (byEmail) {
+    if (byEmail.blocked) return null;
+    const linked = (await query(
+      `UPDATE players SET clerk_user_id = $1 WHERE id = $2 AND clerk_user_id IS NULL RETURNING *`,
+      [clerkUserId, byEmail.id],
+    )).rows[0];
+    return linked || null;
+  }
+
+  // Create a shell row — profile completion (phone/level) happens on the Profile page.
+  try {
+    const created = (await query(
+      `INSERT INTO players (clerk_user_id, email, name) VALUES ($1, $2, $3) RETURNING *`,
+      [clerkUserId, email, displayName.slice(0, 60)],
+    )).rows[0];
+    return created;
+  } catch (e) {
+    if (e.code === "23505") {
+      // Race: another request linked/created the row first.
+      return (await query(`SELECT * FROM players WHERE clerk_user_id = $1`, [clerkUserId])).rows[0] || null;
     }
-  } else {
-    player = (await query(`SELECT * FROM players WHERE email = $1`, [data.email])).rows[0];
-    if (!player) return bad(c, "Account not found.", 404);
-    if (player.blocked) return bad(c, "This account has been blocked. Contact an admin.", 403);
+    throw e;
   }
-
-  await issuePlayerSession(c, player.id);
-  return c.json({ player: mapPlayer(player) });
-});
-
-app.post("/api/auth/logout", async (c) => {
-  const token = getCookie(c, PLAYER_COOKIE);
-  if (token) await query(`DELETE FROM player_sessions WHERE token_hash = $1`, [hashToken(token)]);
-  deleteCookie(c, PLAYER_COOKIE, { path: "/" });
-  return c.json({ ok: true });
-});
+}
 
 app.get("/api/me", async (c) => {
   const player = await currentPlayer(c);
@@ -1164,7 +1103,8 @@ app.patch("/api/admin/players/:id", async (c) => {
   try {
     const { rows } = await query(`UPDATE players SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING *`, values);
     if (!rows[0]) return bad(c, "Player not found.", 404);
-    if (data.blocked) await query(`DELETE FROM player_sessions WHERE player_id = $1`, [id]);
+    // Blocking: currentPlayer() returns null for blocked rows, so new API calls fail with 401.
+    // Clerk's own session cookie remains until it expires or the user signs out.
     return c.json({ player: mapPlayer(rows[0]) });
   } catch (e) {
     if (e.code === "23505") return bad(c, "Another player already uses this email.", 409);

@@ -3,22 +3,22 @@ import { Link } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpRight, CalendarDays, Clock3, CreditCard, Layers3, MapPin, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
+import { useClerk } from "@clerk/react";
 import { Button } from "@/components/ui/button";
 import { Eyebrow, Spinner } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { AttendeesSheet } from "@/components/attendees-sheet";
-import { AuthSheet } from "@/components/auth-sheet";
 import { api, type Session } from "@/lib/api";
 import { usePlayer } from "@/lib/player";
 import { courtsLabel, fmt } from "@/lib/utils";
 
 export default function MySessions() {
   const { player, loading } = usePlayer();
+  const { openSignIn } = useClerk();
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [leaving, setLeaving] = useState<Session | null>(null);
   const [busy, setBusy] = useState(false);
   const [showPlayers, setShowPlayers] = useState<Session | null>(null);
-  const [authOpen, setAuthOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!player) { setSessions([]); return; }
@@ -58,10 +58,9 @@ export default function MySessions() {
         </div>
         <h1 className="font-display text-3xl font-bold">Sign in to see your sessions</h1>
         <p className="mt-3 leading-relaxed text-muted-foreground">Your bookings are tied to your account and follow you across devices.</p>
-        <Button variant="neon" size="lg" className="mt-6" onClick={() => setAuthOpen(true)}>
+        <Button variant="neon" size="lg" className="mt-6" onClick={() => openSignIn()}>
           Sign in or register
         </Button>
-        <AuthSheet open={authOpen} onClose={() => setAuthOpen(false)} onSignedIn={load} />
       </div>
     );
   }

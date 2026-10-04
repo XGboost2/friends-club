@@ -1,3 +1,4 @@
+import { ClerkProvider, SignIn, SignUp } from "@clerk/react";
 import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
@@ -20,6 +21,7 @@ const AdminRecords = lazy(() => import("@/pages/admin/records"));
 const AdminPlayers = lazy(() => import("@/pages/admin/players"));
 const AdminTournaments = lazy(() => import("@/pages/admin/tournaments"));
 const loading = <div className="grid min-h-[50vh] place-items-center text-muted-foreground"><Spinner className="size-6" /></div>;
+const authPage = (node: React.ReactNode) => <div className="grid min-h-[80vh] place-items-center px-4 py-10">{node}</div>;
 
 function App() {
   return (
@@ -34,6 +36,8 @@ function App() {
               <Route path="/my-sessions" element={<MySessions />} />
               <Route path="/tournament" element={<Tournament />} />
               <Route path="/profile" element={<Profile />} />
+              <Route path="/sign-in/*" element={authPage(<SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" />)} />
+              <Route path="/sign-up/*" element={authPage(<SignUp routing="path" path="/sign-up" signInUrl="/sign-in" />)} />
               <Route path="/admin/login" element={<AdminLogin />} />
               <Route path="/admin" element={<Navigate to="/admin/polls" replace />} />
               <Route path="/admin/polls" element={<RequireAdmin><AdminPolls /></RequireAdmin>} />
@@ -55,6 +59,8 @@ function App() {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <ClerkProvider afterSignOutUrl="/" signInUrl="/sign-in" signUpUrl="/sign-up">
+      <App />
+    </ClerkProvider>
   </StrictMode>,
 );

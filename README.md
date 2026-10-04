@@ -7,7 +7,7 @@ Badminton session booking for our Prague group. Admins post polls, players join 
 | Area | What it does |
 | --- | --- |
 | **Calendar** (`/`) | Month calendar highlighting dates with a posted poll; ✓ marks sessions you're in. Join with name, Multisport card (number + name on card) or "pay at venue", plus guests. Confetti confirmation card. |
-| **My sessions** (`/my-sessions`) | Your upcoming sessions: date, time, venue, players going, court number(s) once assigned. Leave a session. Players have no accounts — each device gets an anonymous player id. |
+| **My sessions** (`/my-sessions`) | Your upcoming sessions: date, time, venue, players going, court number(s) once assigned. Leave a session. Players sign in via Clerk (OAuth / magic links). |
 | **Admin → Polls** | Post polls for one or many dates at once, assign court numbers, close/reopen voting, edit, delete, see/remove players, approve other admins. |
 | **Admin → Check-in** | Camera scanner for Multisport QR codes and barcodes (plus manual entry). Live **Paid / Pending / Others** lists; tap a row to mark paid by hand. Full-screen kiosk mode. |
 | **Admin → Records** | Everything from the last 7 days. Sessions older than 7 days — including stored card numbers — are deleted automatically (hourly and on admin load). |
@@ -35,11 +35,17 @@ Production: `npm run build && npm start`.
 | Name | Required | Notes |
 | --- | --- | --- |
 | `DATABASE_URL` | yes | Postgres connection string (on Railway: reference the Postgres service's `DATABASE_URL`). |
+| `VITE_CLERK_PUBLISHABLE_KEY` | yes | Clerk publishable key (`pk_test_...` for dev, `pk_live_...` for production). |
+| `CLERK_SECRET_KEY` | yes | Clerk secret key — matches the publishable key's instance. |
 | `NODE_ENV` | recommended | Set to `production` so admin cookies are `Secure`. |
 | `CLUB_TIMEZONE` | no | Defaults to `Europe/Prague`; used for "today" and the 7-day retention. |
 | `PORT` | no | Provided by the host. |
 | `SITE_URL` | no | Canonical address, defaults to `https://friends-club.cz`. Used for canonical links, sitemap and redirects. |
 | `GOOGLE_SITE_VERIFICATION` | no | Token from Google Search Console's "HTML tag" method, if you verify that way. |
+
+### Clerk setup
+
+Players authenticate via [Clerk](https://clerk.com). Create a Clerk app, enable the OAuth providers you want (Google, GitHub, etc.), and paste the publishable + secret keys into `.env`. For production, promote the Clerk app to a production instance and add DNS records so Clerk can send emails from `@friends-club.cz` — see `docs/clerk-auth-plan.md`.
 
 ## Deploy (Railway)
 

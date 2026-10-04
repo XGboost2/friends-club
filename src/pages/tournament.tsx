@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CalendarDays, ChevronRight, MapPin, Search, Sparkles, Swords, Trophy, UserPlus, UserRoundX, Users2 } from "lucide-react";
 import { toast } from "sonner";
+import { useClerk } from "@clerk/react";
 import { Button } from "@/components/ui/button";
 import { Eyebrow, Field, Spinner } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
-import { AuthSheet } from "@/components/auth-sheet";
 import { PlayerSchedule } from "@/components/player-schedule";
 import { useConfirm } from "@/components/confirm-dialog";
 import { api, type PlayerLevel, type Tournament, type TournamentCategory, type TournamentDetail, type TournamentFormat, type TournamentRegistration } from "@/lib/api";
@@ -121,11 +121,11 @@ function TournamentPlaceholder() {
 
 function TournamentBoard({ tournamentId, onChange }: { tournamentId: number; onChange: () => void }) {
   const { player } = usePlayer();
+  const { openSignIn } = useClerk();
   const [detail, setDetail] = useState<TournamentDetail | null>(null);
   const [mine, setMine] = useState<TournamentRegistration[]>([]);
   const [registerCategory, setRegisterCategory] = useState<TournamentCategory | null>(null);
   const [changePartner, setChangePartner] = useState<TournamentRegistration | null>(null);
-  const [authOpen, setAuthOpen] = useState(false);
   const { ask, dialog } = useConfirm();
 
   const load = useCallback(async () => {
@@ -224,7 +224,7 @@ function TournamentBoard({ tournamentId, onChange }: { tournamentId: number; onC
                           variant={registered ? "glass" : "neon"}
                           size="sm"
                           disabled={closed || registered || full}
-                          onClick={() => (player ? setRegisterCategory(c) : setAuthOpen(true))}
+                          onClick={() => (player ? setRegisterCategory(c) : openSignIn())}
                         >
                           {registered ? "You're in" : full ? "Full" : "Register"} <ChevronRight size={14} />
                         </Button>
@@ -250,7 +250,7 @@ function TournamentBoard({ tournamentId, onChange }: { tournamentId: number; onC
           {!player && (
             <div className="mt-5 space-y-3 text-sm">
               <p className="text-muted-foreground">Sign in to see or manage your entries.</p>
-              <Button variant="neon" size="lg" className="w-full" onClick={() => setAuthOpen(true)}>Sign in or register</Button>
+              <Button variant="neon" size="lg" className="w-full" onClick={() => openSignIn()}>Sign in or register</Button>
             </div>
           )}
           {player && mine.length === 0 && (
@@ -308,7 +308,6 @@ function TournamentBoard({ tournamentId, onChange }: { tournamentId: number; onC
         onClose={() => setChangePartner(null)}
         onDone={() => { setChangePartner(null); load(); onChange(); }}
       />
-      <AuthSheet open={authOpen} onClose={() => setAuthOpen(false)} onSignedIn={load} />
       {dialog}
     </div>
   );

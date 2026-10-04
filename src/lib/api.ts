@@ -45,9 +45,9 @@ export type PlayerLevel = "beginner" | "intermediate" | "advanced";
 export type Player = {
   id: number;
   email: string;
-  phone: string;
+  phone: string | null;
   name: string;
-  level: PlayerLevel;
+  level: PlayerLevel | null;
   blocked: boolean;
   createdAt?: string;
 };
@@ -153,12 +153,22 @@ export class ApiError extends Error {
   }
 }
 
+async function clerkBearer(): Promise<string | null> {
+  try { return (await (window as any).Clerk?.session?.getToken?.()) ?? null; } catch { return null; }
+}
+
 export async function api<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (options.body) headers["Content-Type"] = "application/json";
+  // Player endpoints authenticate via Clerk bearer tokens. Admin endpoints still use the fc_admin cookie.
+  const token = path.startsWith("/api/admin") ? null : await clerkBearer();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   let res: Response;
   try {
     res = await fetch(path, {
       method: options.method ?? (options.body ? "POST" : "GET"),
-      headers: options.body ? { "Content-Type": "application/json" } : undefined,
+      headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
       credentials: "same-origin",
     });

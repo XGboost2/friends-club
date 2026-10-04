@@ -59,7 +59,7 @@ export async function migrate() {
   `);
 
   // First time the players rollout runs, wipe old device-only bookings so the
-  // new registration flow (email verification) starts from a clean slate.
+  // new registration flow (Clerk) starts from a clean slate.
   const check = await query(`SELECT to_regclass('public.players') AS t`);
   if (!check.rows[0].t) {
     await query(`DROP TABLE IF EXISTS guests, registrations, sessions CASCADE`);
@@ -68,31 +68,24 @@ export async function migrate() {
   await query(`
     CREATE TABLE IF NOT EXISTS players (
       id SERIAL PRIMARY KEY,
+      clerk_user_id TEXT UNIQUE,
       email TEXT NOT NULL UNIQUE,
-      phone TEXT NOT NULL,
+      phone TEXT,
       name TEXT NOT NULL,
-      level TEXT NOT NULL CHECK (level IN ('beginner','intermediate','advanced')),
+      level TEXT CHECK (level IN ('beginner','intermediate','advanced')),
       blocked BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
-    CREATE TABLE IF NOT EXISTS otp_codes (
-      email TEXT NOT NULL,
-      purpose TEXT NOT NULL CHECK (purpose IN ('register','login')),
-      code_hash TEXT NOT NULL,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      expires_at TIMESTAMPTZ NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      PRIMARY KEY (email, purpose)
-    );
+    -- Migration for pre-Clerk schemas (no-op on fresh DBs).
+    ALTER TABLE players ADD COLUMN IF NOT EXISTS clerk_user_id TEXT UNIQUE;
+    ALTER TABLE players ALTER COLUMN phone DROP NOT NULL;
+    ALTER TABLE players ALTER COLUMN level DROP NOT NULL;
 
-    CREATE TABLE IF NOT EXISTS player_sessions (
-      token_hash TEXT PRIMARY KEY,
-      player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
-      expires_at TIMESTAMPTZ NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-    CREATE INDEX IF NOT EXISTS player_sessions_player_idx ON player_sessions(player_id);
+    -- OTP + player_sessions were owned by the removed email-OTP flow.
+    -- Clerk holds sessions now; drop these tables if they still exist from older deploys.
+    DROP TABLE IF EXISTS otp_codes;
+    DROP TABLE IF EXISTS player_sessions;
 
     CREATE TABLE IF NOT EXISTS sessions (
       id SERIAL PRIMARY KEY,
@@ -248,16 +241,13 @@ export async function migrate() {
   `);
 }
 
-/** Keep two weeks of history: drop sessions (and their players, guests, card numbers) older than 14 days. */
 /**
  * Retention policy — runs on boot and every hour.
  *
  *   sessions          : dropped 14 days after the session date (cascades registrations + guests + cards)
  *   tournaments       : dropped 90 days after starts_on (cascades categories + registrations + matches)
  *   admin_sessions    : any row past its expires_at
- *   player_sessions   : any row past its expires_at
- *   otp_codes         : any row past its expires_at (no grace — OTPs are single-use)
- *   inactive players  : never logged in for 12 months AND no bookings/entries — deleted (GDPR minimisation)
+ *   inactive players  : created over 12 months ago AND no bookings/entries — deleted (GDPR minimisation)
  *
  * All destructive work is logged with counts so we can watch Neon usage over time.
  */
@@ -272,13 +262,10 @@ export async function cleanupOldRecords() {
   await run("sessions", `DELETE FROM sessions WHERE date < current_date - 14`);
   await run("tournaments", `DELETE FROM tournaments WHERE starts_on < current_date - 90`);
   await run("admin_sessions", `DELETE FROM admin_sessions WHERE expires_at < now()`);
-  await run("player_sessions", `DELETE FROM player_sessions WHERE expires_at < now()`);
-  await run("otp_codes", `DELETE FROM otp_codes WHERE expires_at < now()`);
   await run(
     "inactive_players",
     `DELETE FROM players p
        WHERE p.created_at < now() - interval '12 months'
-         AND NOT EXISTS (SELECT 1 FROM player_sessions s WHERE s.player_id = p.id AND s.created_at > now() - interval '12 months')
          AND NOT EXISTS (SELECT 1 FROM registrations r WHERE r.player_id = p.id)
          AND NOT EXISTS (SELECT 1 FROM tournament_registrations r WHERE r.player_id = p.id OR r.partner_id = p.id)`,
   );
@@ -297,8 +284,6 @@ export async function storageStats() {
     { table: "registrations", ageColumn: "created_at" },
     { table: "guests", ageColumn: null },
     { table: "players", ageColumn: "created_at" },
-    { table: "player_sessions", ageColumn: "created_at" },
-    { table: "otp_codes", ageColumn: "created_at" },
     { table: "tournaments", ageColumn: "starts_on" },
     { table: "tournament_categories", ageColumn: null },
     { table: "tournament_registrations", ageColumn: "created_at" },

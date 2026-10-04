@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { AtSign, LogOut, Mail, Phone, ShieldCheck, User } from "lucide-react";
+import { AtSign, LogOut, Mail, Phone, ShieldCheck, Sparkles, User } from "lucide-react";
 import { toast } from "sonner";
 import { Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -24,8 +24,8 @@ export default function ProfilePage() {
   useEffect(() => {
     if (player) {
       setName(player.name);
-      setPhone(player.phone);
-      setLevel(player.level);
+      setPhone(player.phone ?? "");
+      setLevel(player.level ?? "intermediate");
     }
   }, [player?.id]);
 
@@ -38,7 +38,8 @@ export default function ProfilePage() {
   }
   if (!player) return <Navigate to="/" replace />;
 
-  const dirty = name.trim() !== player.name || phone.trim() !== player.phone || level !== player.level;
+  const dirty = name.trim() !== player.name || phone.trim() !== (player.phone ?? "") || level !== (player.level ?? "intermediate");
+  const incomplete = !player.phone || !player.level;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -65,10 +66,19 @@ export default function ProfilePage() {
         <p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
           These details show up on registrations and let admins reach you if a session changes.
         </p>
+        {incomplete && (
+          <div className="mt-5 flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/10 p-4 text-sm text-primary">
+            <Sparkles size={16} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="font-semibold">Finish setting up your account</p>
+              <p className="mt-1 text-xs leading-relaxed text-primary/80">Add your phone number and playing level so admins can match you with the right sessions.</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <motion.form initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} onSubmit={save} className="glass-panel space-y-5 rounded-3xl p-5 sm:p-7">
-        <Field label="Email" hint="To change your email, ask an admin.">
+        <Field label="Email" hint="Managed by your account provider. Change it in account settings.">
           <div className="relative">
             <Mail size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input className="field pl-10 opacity-70" type="email" value={player.email} readOnly disabled />
