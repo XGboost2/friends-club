@@ -17,7 +17,6 @@
     { "q": "Do I need a Multisport card?", "a": "No. If you have Multisport, add your card number when you join and scan it at the entrance. Without Multisport you simply pay at the venue." },
     { "q": "Can I bring friends?", "a": "Yes. Add guests when you join a session — they count towards the session's spots and pay at the venue." },
     { "q": "Where do we play?", "a": "At sports centres in Prague. Every session shows its venue and time, and the court numbers appear once they are booked." },
-    { "q": "Can I cancel my spot?", "a": "Yes — open My sessions and leave the session up to 25 hours before it starts, so someone else can take your spot." },
-    { "q": "Do I need an account?", "a": "No account needed. Just enter your name when you join; your sessions are remembered on your phone." }
+    { "q": "Can I cancel my spot?", "a": "Yes — open My sessions and leave the session up to 25 hours before it starts, so someone else can take your spot." }
   ]
 }
