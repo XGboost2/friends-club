@@ -11,9 +11,9 @@ export function Field({ label, hint, children, className }: { label: string; hin
   );
 }
 
-export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+export function Toggle({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
   return (
-    <button type="button" role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)} className={cn("relative h-7 w-12 shrink-0 rounded-full border transition-colors", checked ? "border-primary bg-primary" : "border-border bg-soft")}>
+    <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)} className={cn("relative h-7 w-12 shrink-0 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-40", checked ? "border-primary bg-primary" : "border-border bg-soft")}>
       <span className={cn("absolute top-0.5 size-5.5 rounded-full shadow transition-all", checked ? "left-[calc(100%-1.5rem)] bg-primary-foreground" : "left-0.5 bg-muted-foreground")} style={{ width: 22, height: 22 }} />
     </button>
   );

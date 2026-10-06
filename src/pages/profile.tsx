@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { AtSign, Check, LogOut, Mail, Phone, ShieldCheck, Sparkles, User } from "lucide-react";
+import { AtSign, Check, CreditCard, LogOut, Mail, Phone, ShieldCheck, Sparkles, User } from "lucide-react";
 import { toast } from "sonner";
 import { Navigate, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,8 @@ export default function ProfilePage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [level, setLevel] = useState<PlayerLevel>("intermediate");
+  const [cardNumber, setCardNumber] = useState("");
+  const [holderName, setHolderName] = useState("");
   const [busy, setBusy] = useState(false);
   const [savedAt, setSavedAt] = useState(0);
 
@@ -28,6 +30,8 @@ export default function ProfilePage() {
       setName(player.name);
       setPhone(player.phone ?? "");
       setLevel(player.level ?? "intermediate");
+      setCardNumber(player.multisportCardNumber ?? "");
+      setHolderName(player.multisportHolderName ?? "");
     }
   }, [player?.id]);
 
@@ -40,16 +44,31 @@ export default function ProfilePage() {
   }
   if (!player) return <Navigate to="/" replace />;
 
-  const dirty = name.trim() !== player.name || phone.trim() !== (player.phone ?? "") || level !== (player.level ?? "intermediate");
+  const dirty =
+    name.trim() !== player.name ||
+    phone.trim() !== (player.phone ?? "") ||
+    level !== (player.level ?? "intermediate") ||
+    cardNumber.trim() !== (player.multisportCardNumber ?? "") ||
+    holderName.trim() !== (player.multisportHolderName ?? "");
   const incomplete = !player.phone || !player.level;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim() || !phone.trim()) return toast.error("Name and phone are required.");
+    const trimmedCard = cardNumber.trim();
+    const trimmedHolder = holderName.trim();
+    if (trimmedCard && trimmedCard.replace(/[^a-z0-9]/gi, "").length < 6) return toast.error("Enter your full Multisport card number, or clear the field.");
+    if (trimmedCard && !trimmedHolder) return toast.error("Enter the name on your Multisport card.");
     const wasIncomplete = incomplete;
     setBusy(true);
     try {
-      const res = await api<{ player: Player }>("/api/me", { method: "PATCH", body: { name: name.trim(), phone: phone.trim(), level } });
+      const res = await api<{ player: Player }>("/api/me", { method: "PATCH", body: {
+        name: name.trim(),
+        phone: phone.trim(),
+        level,
+        multisportCardNumber: trimmedCard || null,
+        multisportHolderName: trimmedCard ? trimmedHolder : null,
+      } });
       setPlayer(res.player);
       toast.success("Profile updated.");
       setSavedAt(Date.now());
@@ -101,6 +120,30 @@ export default function ProfilePage() {
           <div className="relative">
             <Phone size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input className="field pl-10" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={30} required />
+          </div>
+        </Field>
+
+        <Field label="Multisport card" hint="Optional. Fill once and we'll apply it whenever you toggle Multisport while joining a session.">
+          <div className="grid gap-3">
+            <div className="relative">
+              <CreditCard size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                className="field pl-10 font-mono tracking-wider"
+                value={cardNumber}
+                onChange={(e) => setCardNumber(e.target.value)}
+                placeholder="Number on your card"
+                autoComplete="off"
+                maxLength={40}
+              />
+            </div>
+            <input
+              className="field"
+              value={holderName}
+              onChange={(e) => setHolderName(e.target.value)}
+              placeholder="Name on card"
+              maxLength={80}
+              disabled={!cardNumber.trim()}
+            />
           </div>
         </Field>
 

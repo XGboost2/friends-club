@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { CreditCard, Minus, Plus, UserPlus, Users } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
@@ -6,7 +7,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Field, Spinner, Toggle } from "@/components/ui/field";
 import { api, type Session } from "@/lib/api";
-import { loadCardPrefs, saveCardPrefs, usePlayer } from "@/lib/player";
+import { usePlayer } from "@/lib/player";
 import { fmt } from "@/lib/utils";
 
 type GuestForm = {
@@ -23,18 +24,14 @@ function defaultGuestName(playerName: string, index: number) {
 
 export function JoinSheet({ session, onClose, onJoined }: { session: Session | null; onClose: () => void; onJoined: (session: Session, guests: string[], multisport: boolean) => void }) {
   const { player } = usePlayer();
-  const [multisport, setMultisport] = useState(true);
-  const [cardNumber, setCardNumber] = useState("");
-  const [holderName, setHolderName] = useState("");
+  const hasSavedCard = !!player?.multisportCardNumber && !!player?.multisportHolderName;
+  const [multisport, setMultisport] = useState(false);
   const [guests, setGuests] = useState<GuestForm[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!session) return;
-    const prefs = loadCardPrefs();
-    setMultisport(prefs.usesMultisport);
-    setCardNumber(prefs.cardNumber);
-    setHolderName(prefs.holderName || player?.name || "");
+    setMultisport(hasSavedCard);
     setGuests([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id]);
@@ -61,8 +58,7 @@ export function JoinSheet({ session, onClose, onJoined }: { session: Session | n
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!session || !player) return;
-    if (multisport && cardNumber.replace(/[^a-z0-9]/gi, "").length < 6) return toast.error("Enter your full Multisport card number.");
-    if (multisport && !holderName.trim()) return toast.error("Enter the name on the Multisport card.");
+    if (multisport && !hasSavedCard) return toast.error("Add your Multisport card in your profile first.");
     const cleanGuests = guests.map((g, i) => ({
       name: g.name.trim() || defaultGuestName(player.name, i),
       usesMultisport: g.usesMultisport,
@@ -79,15 +75,8 @@ export function JoinSheet({ session, onClose, onJoined }: { session: Session | n
       const res = await api<{ session: Session }>(`/api/sessions/${session.id}/join`, {
         body: {
           usesMultisport: multisport,
-          cardNumber: multisport ? cardNumber : null,
-          holderName: multisport ? holderName.trim() : null,
           guests: cleanGuests,
         },
-      });
-      saveCardPrefs({
-        usesMultisport: multisport,
-        cardNumber: multisport ? cardNumber.trim() : loadCardPrefs().cardNumber,
-        holderName: multisport ? holderName.trim() : loadCardPrefs().holderName,
       });
       onJoined(res.session, cleanGuests.map((g) => g.name), multisport);
     } catch (err) {
@@ -125,25 +114,15 @@ export function JoinSheet({ session, onClose, onJoined }: { session: Session | n
               </span>
               <div>
                 <p className="font-semibold">I have Multisport</p>
-                <p className="text-xs text-muted-foreground">{multisport ? "Scan your card at the entrance" : "You'll pay at the venue"}</p>
+                <p className="text-xs text-muted-foreground">
+                  {!hasSavedCard
+                    ? <>Add your card in <Link to="/profile" className="underline underline-offset-2 hover:text-foreground">your profile</Link> to use it.</>
+                    : multisport ? "Scan your card at the entrance" : "You'll pay at the venue"}
+                </p>
               </div>
             </div>
-            <Toggle checked={multisport} onChange={setMultisport} label="I have Multisport" />
+            <Toggle checked={multisport} onChange={setMultisport} label="I have Multisport" disabled={!hasSavedCard} />
           </div>
-          <AnimatePresence initial={false}>
-            {multisport && (
-              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                <div className="grid gap-4 pt-5 sm:grid-cols-2">
-                  <Field label="Card number" className="sm:col-span-2">
-                    <input className="field font-mono tracking-wider" value={cardNumber} onChange={(e) => setCardNumber(e.target.value)} placeholder="Number on your card" inputMode="text" autoComplete="off" maxLength={40} />
-                  </Field>
-                  <Field label="Name on card" className="sm:col-span-2">
-                    <input className="field" value={holderName} onChange={(e) => setHolderName(e.target.value)} placeholder="As printed on the card" maxLength={80} />
-                  </Field>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
 
         <div>

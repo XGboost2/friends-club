@@ -73,6 +73,8 @@ export async function migrate() {
       phone TEXT,
       name TEXT NOT NULL,
       level TEXT CHECK (level IN ('beginner','intermediate','advanced')),
+      multisport_card_number TEXT,
+      multisport_holder_name TEXT,
       blocked BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
@@ -81,6 +83,28 @@ export async function migrate() {
     ALTER TABLE players ADD COLUMN IF NOT EXISTS clerk_user_id TEXT UNIQUE;
     ALTER TABLE players ALTER COLUMN phone DROP NOT NULL;
     ALTER TABLE players ALTER COLUMN level DROP NOT NULL;
+    ALTER TABLE players ADD COLUMN IF NOT EXISTS multisport_card_number TEXT;
+    ALTER TABLE players ADD COLUMN IF NOT EXISTS multisport_holder_name TEXT;
+  `);
+
+  // Backfill Multisport card onto the player profile from their most recent Multisport
+  // registration. Runs once per player (NULL guard makes it idempotent). Lets existing
+  // users keep joining without first visiting their profile.
+  await query(`
+    UPDATE players p
+       SET multisport_card_number = r.card_number,
+           multisport_holder_name = r.holder_name
+      FROM (
+        SELECT DISTINCT ON (player_id) player_id, card_number, holder_name
+          FROM registrations
+          WHERE uses_multisport AND card_number IS NOT NULL
+          ORDER BY player_id, created_at DESC
+      ) r
+     WHERE p.id = r.player_id
+       AND p.multisport_card_number IS NULL;
+  `);
+
+  await query(`
 
     -- OTP + player_sessions were owned by the removed email-OTP flow.
     -- Clerk holds sessions now; drop these tables if they still exist from older deploys.
@@ -247,9 +271,8 @@ export async function migrate() {
  *   sessions          : dropped 14 days after the session date (cascades registrations + guests + cards)
  *   tournaments       : dropped 90 days after starts_on (cascades categories + registrations + matches)
  *   admin_sessions    : any row past its expires_at
- *   inactive players  : created over 12 months ago AND no bookings/entries — deleted (GDPR minimisation)
  *
- * All destructive work is logged with counts so we can watch Neon usage over time.
+ * Players are never auto-deleted. Admins can remove players manually from the Players screen.
  */
 export async function cleanupOldRecords() {
   const stats = {};
@@ -262,13 +285,6 @@ export async function cleanupOldRecords() {
   await run("sessions", `DELETE FROM sessions WHERE date < current_date - 14`);
   await run("tournaments", `DELETE FROM tournaments WHERE starts_on < current_date - 90`);
   await run("admin_sessions", `DELETE FROM admin_sessions WHERE expires_at < now()`);
-  await run(
-    "inactive_players",
-    `DELETE FROM players p
-       WHERE p.created_at < now() - interval '12 months'
-         AND NOT EXISTS (SELECT 1 FROM registrations r WHERE r.player_id = p.id)
-         AND NOT EXISTS (SELECT 1 FROM tournament_registrations r WHERE r.player_id = p.id OR r.partner_id = p.id)`,
-  );
 
   if (Object.keys(stats).length) {
     const parts = Object.entries(stats).map(([k, v]) => `${k}=${v}`).join(", ");

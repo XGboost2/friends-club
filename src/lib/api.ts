@@ -48,6 +48,8 @@ export type Player = {
   phone: string | null;
   name: string;
   level: PlayerLevel | null;
+  multisportCardNumber: string | null;
+  multisportHolderName: string | null;
   blocked: boolean;
   createdAt?: string;
 };

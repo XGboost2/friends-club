@@ -35,7 +35,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [isSignedIn]);
 
   const logout = useCallback(async () => {
-    try { localStorage.removeItem(CARD_KEY); } catch { /* ignore */ }
     setPlayer(null);
     await signOut();
   }, [signOut]);
@@ -54,27 +53,3 @@ export function usePlayer() {
   return ctx;
 }
 
-// Card details stay per-device (payment convenience, not identity).
-export type CardPrefs = { usesMultisport: boolean; cardNumber: string; holderName: string };
-const CARD_KEY = "friends-club.card";
-
-export function loadCardPrefs(): CardPrefs {
-  try {
-    const stored = JSON.parse(localStorage.getItem(CARD_KEY) || "{}") as Partial<CardPrefs>;
-    return {
-      usesMultisport: stored.usesMultisport ?? true,
-      cardNumber: stored.cardNumber || "",
-      holderName: stored.holderName || "",
-    };
-  } catch {
-    return { usesMultisport: true, cardNumber: "", holderName: "" };
-  }
-}
-
-export function saveCardPrefs(prefs: CardPrefs) {
-  try {
-    localStorage.setItem(CARD_KEY, JSON.stringify(prefs));
-  } catch {
-    /* storage unavailable */
-  }
-}

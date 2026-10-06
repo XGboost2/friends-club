@@ -64,7 +64,17 @@ function mapSession(row) {
 }
 
 function mapPlayer(row) {
-  return { id: row.id, email: row.email, phone: row.phone, name: row.name, level: row.level, blocked: row.blocked, createdAt: row.created_at };
+  return {
+    id: row.id,
+    email: row.email,
+    phone: row.phone,
+    name: row.name,
+    level: row.level,
+    multisportCardNumber: row.multisport_card_number,
+    multisportHolderName: row.multisport_holder_name,
+    blocked: row.blocked,
+    createdAt: row.created_at,
+  };
 }
 
 /** Close voting for any session starting within AUTO_CLOSE_HOURS. Safe to call frequently. */
@@ -175,9 +185,11 @@ app.patch("/api/me", async (c) => {
     name: nameSchema.optional(),
     phone: phoneSchema.optional(),
     level: levelSchema.optional(),
+    multisportCardNumber: z.string().trim().max(40).nullable().optional(),
+    multisportHolderName: z.string().trim().max(80).nullable().optional(),
   }));
   if (error) return bad(c, error);
-  const columns = { name: "name", phone: "phone", level: "level" };
+  const columns = { name: "name", phone: "phone", level: "level", multisportCardNumber: "multisport_card_number", multisportHolderName: "multisport_holder_name" };
   const sets = [], values = [];
   for (const [k, col] of Object.entries(columns)) {
     if (data[k] !== undefined) { values.push(data[k]); sets.push(`${col} = $${values.length}`); }
@@ -219,6 +231,8 @@ const guestSchema = z.object({
 
 const joinSchema = z.object({
   usesMultisport: z.boolean(),
+  // Legacy fields kept so cached browser bundles from the pre-profile-card era keep working.
+  // On first use, we persist them to the player's profile so later joins read from there.
   cardNumber: z.string().trim().max(40).optional().nullable(),
   holderName: z.string().trim().max(80).optional().nullable(),
   guests: z.array(guestSchema).max(10).default([]),
@@ -230,9 +244,21 @@ app.post("/api/sessions/:id/join", async (c) => {
   const id = Number(c.req.param("id"));
   const { data, error } = await parseBody(c, joinSchema);
   if (error) return bad(c, error);
+  // Player's Multisport card lives on their profile. Fall back to the request body
+  // (legacy clients) and persist to the profile on first use.
+  let playerCardNumber = "";
+  let playerHolderName = "";
+  let persistCard = false;
   if (data.usesMultisport) {
-    if (cardKey(data.cardNumber).length < 6) return bad(c, "Enter your Multisport card number (at least 6 characters).");
-    if (!data.holderName) return bad(c, "Enter the name on the Multisport card.");
+    playerCardNumber = (player.multisport_card_number || "").trim();
+    playerHolderName = (player.multisport_holder_name || "").trim();
+    if (!playerCardNumber && data.cardNumber) {
+      playerCardNumber = data.cardNumber.trim();
+      playerHolderName = (data.holderName || "").trim();
+      persistCard = true;
+    }
+    if (cardKey(playerCardNumber).length < 6) return bad(c, "Add your Multisport card number in your profile first.");
+    if (!playerHolderName) return bad(c, "Add the name on your Multisport card in your profile first.");
   }
   for (const g of data.guests) {
     if (g.usesMultisport) {
@@ -248,7 +274,7 @@ app.post("/api/sessions/:id/join", async (c) => {
     submittedCards.add(key);
     return true;
   };
-  if (data.usesMultisport && !addCard(cardKey(data.cardNumber))) return bad(c, "The same Multisport card can't be used twice in one booking.");
+  if (data.usesMultisport && !addCard(cardKey(playerCardNumber))) return bad(c, "The same Multisport card can't be used twice in one booking.");
   for (const g of data.guests) {
     if (g.usesMultisport && !addCard(cardKey(g.cardNumber))) return bad(c, `The same Multisport card can't be used twice in one booking.`);
   }
@@ -272,7 +298,7 @@ app.post("/api/sessions/:id/join", async (c) => {
       if (existing) return { status: 409, error: "You're already in this session." };
       // Card collision check: block if any card in this booking is already booked for this session.
       const cardsToCheck = [];
-      if (data.usesMultisport) cardsToCheck.push(cardKey(data.cardNumber));
+      if (data.usesMultisport) cardsToCheck.push(cardKey(playerCardNumber));
       for (const g of data.guests) if (g.usesMultisport) cardsToCheck.push(cardKey(g.cardNumber));
       if (cardsToCheck.length) {
         const clash = (await client.query(
@@ -301,9 +327,9 @@ app.post("/api/sessions/:id/join", async (c) => {
         `INSERT INTO registrations (session_id, player_id, player_name, uses_multisport, card_number, card_key, holder_name)
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
         [id, player.id, player.name, data.usesMultisport,
-          data.usesMultisport ? data.cardNumber.trim() : null,
-          data.usesMultisport ? cardKey(data.cardNumber) : null,
-          data.usesMultisport ? data.holderName : null],
+          data.usesMultisport ? playerCardNumber : null,
+          data.usesMultisport ? cardKey(playerCardNumber) : null,
+          data.usesMultisport ? playerHolderName : null],
       )).rows[0];
       for (const guest of data.guests) {
         await client.query(
@@ -318,6 +344,13 @@ app.post("/api/sessions/:id/join", async (c) => {
       return { ok: true };
     });
     if (result.error) return bad(c, result.error, result.status);
+    if (persistCard) {
+      await query(
+        `UPDATE players SET multisport_card_number = $1, multisport_holder_name = $2
+           WHERE id = $3 AND multisport_card_number IS NULL`,
+        [playerCardNumber, playerHolderName, player.id],
+      );
+    }
     const session = (await query(`${SESSION_STATS_SQL} WHERE s.id = $1`, [id])).rows[0];
     return c.json({ ok: true, session: mapSession(session) });
   } catch (e) {
