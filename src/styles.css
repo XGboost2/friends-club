@@ -42,31 +42,34 @@
   color-scheme: dark;
   --radius: 1.25rem;
   /* Czech flag reinterpreted cyberpunk: neon red, neon cobalt, white — on near-black */
-  --background: #0f1a35;
-  --foreground: #f2f8fa;
-  --card: color-mix(in oklab, #16233f 86%, transparent);
-  --card-foreground: #f2f8fa;
-  --popover: #16233f;
-  --popover-foreground: #f2f8fa;
-  --primary: #ff3d4a;
-  --primary-foreground: #ffffff;
-  --secondary: #182944;
-  --secondary-foreground: #f2f8fa;
-  --muted: #152340;
-  --muted-foreground: color-mix(in oklab, #f2f8fa 82%, transparent);
-  --accent: #2bb5c5;
-  --accent-foreground: #04131a;
-  --destructive: #ff3d4a;
-  --destructive-foreground: #ffffff;
-  --border: color-mix(in oklab, #2bb5c5 42%, transparent);
-  --input: color-mix(in oklab, #ffffff 24%, transparent);
-  --ring: #ff3d4a;
-  --cyan: #5fd9e4;
-  --violet: #2bb5c5;
-  --emerald: #5fd9e4;
-  --amber: #ffd166;
-  --surface: color-mix(in oklab, #16233f 76%, transparent);
-  --soft: color-mix(in oklab, #ffffff 8%, transparent);
+  /* Starry Starry Night: Chosen Blue #0B1E38, Star Sapphire #173679,
+     Nature Blue #4888C8, Scintillating Turquoise #7FC5DC,
+     Light Gold Matte #E8E163, Dixie #DB901C */
+  --background: #0B1E38;
+  --foreground: #EAF2F8;
+  --card: color-mix(in oklab, #173679 88%, transparent);
+  --card-foreground: #EAF2F8;
+  --popover: #173679;
+  --popover-foreground: #EAF2F8;
+  --primary: #E8E163;
+  --primary-foreground: #0B1E38;
+  --secondary: #173679;
+  --secondary-foreground: #EAF2F8;
+  --muted: #142C5E;
+  --muted-foreground: #7FC5DC;
+  --accent: #4888C8;
+  --accent-foreground: #0B1E38;
+  --destructive: #DB901C;
+  --destructive-foreground: #0B1E38;
+  --border: color-mix(in oklab, #7FC5DC 32%, transparent);
+  --input: color-mix(in oklab, #7FC5DC 28%, transparent);
+  --ring: #E8E163;
+  --cyan: #7FC5DC;
+  --violet: #4888C8;
+  --emerald: #7FC5DC;
+  --amber: #DB901C;
+  --surface: color-mix(in oklab, #173679 78%, transparent);
+  --soft: color-mix(in oklab, #7FC5DC 10%, transparent);
 }
 
 @layer base {
@@ -122,25 +125,41 @@
   }
 }
 
-.ambient-stage { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; background: var(--background); }
-.ambient-stage::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 0%, var(--background) 84%); }
-.aurora { position: absolute; width: min(68vw, 900px); height: min(60vw, 760px); border-radius: 50%; filter: blur(110px); opacity: .35; animation: drift 16s ease-in-out infinite alternate; }
-.aurora-lime { top: -34%; left: -18%; background: var(--primary); opacity: .32; }
-.aurora-cyan { top: -30%; right: -14%; background: var(--accent); opacity: .32; animation-delay: -8s; }
-.aurora-violet { top: 18%; left: 34%; background: var(--cyan); opacity: .18; animation-delay: -15s; }
-.court-grid {
-  position: absolute; inset: 0; opacity: .18;
+.ambient-stage {
+  position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 38%, #2a558f 0%, #122c5e 55%, #081731 100%);
+}
+.ambient-stage::before {
+  content: ""; position: absolute; inset: 0;
+  background-image: url("/starry-sky.svg");
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+  opacity: .5;
+  animation: swirl 80s ease-in-out infinite alternate;
+}
+.ambient-stage::after {
+  content: ""; position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 55%, color-mix(in oklab, #0B1E38 65%, transparent) 0%, color-mix(in oklab, #0B1E38 40%, transparent) 50%, transparent 85%),
+    linear-gradient(180deg, color-mix(in oklab, #0B1E38 35%, transparent) 0%, color-mix(in oklab, #0B1E38 85%, transparent) 95%);
+}
+.aurora { position: absolute; border-radius: 50%; filter: blur(120px); animation: drift 24s ease-in-out infinite alternate; mix-blend-mode: screen; }
+.aurora-lime { top: -14%; left: 14%; width: min(30vw, 400px); height: min(30vw, 400px); background: radial-gradient(circle, var(--primary) 0%, transparent 65%); opacity: .18; }
+.aurora-cyan { top: -10%; right: 10%; width: min(34vw, 460px); height: min(34vw, 460px); background: radial-gradient(circle, var(--primary) 0%, transparent 60%); opacity: .16; animation-delay: -8s; }
+.aurora-violet { top: 30%; left: 36%; width: min(44vw, 600px); height: min(40vw, 520px); background: radial-gradient(circle, var(--accent) 0%, transparent 65%); opacity: .18; animation-delay: -15s; }
+.court-grid { display: none; }
+.court-grid-off {
+  position: absolute; inset: 0; opacity: .08;
   background-image:
-    linear-gradient(to right, color-mix(in oklab, var(--accent) 55%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in oklab, var(--accent) 55%, transparent) 1px, transparent 1px);
-  background-size: 60px 60px;
+    linear-gradient(to right, color-mix(in oklab, var(--primary) 45%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--primary) 45%, transparent) 1px, transparent 1px);
+  background-size: 80px 80px;
   mask-image: linear-gradient(to bottom, transparent, black 15%, black 65%, transparent);
   transform: perspective(700px) rotateX(32deg) scale(1.35); transform-origin: top center;
 }
-.court-lines { position: absolute; right: -4%; top: 80px; width: min(58vw, 780px); aspect-ratio: 1.75; border: 1px solid color-mix(in oklab, var(--primary) 50%, transparent); transform: rotate(-23deg) skew(10deg); opacity: .75; box-shadow: 0 0 60px color-mix(in oklab, var(--primary) 32%, transparent); }
-.court-lines::before { content: ""; position: absolute; inset: 14% 0; border-top: 1px solid color-mix(in oklab, var(--accent) 55%, transparent); border-bottom: 1px solid color-mix(in oklab, var(--accent) 55%, transparent); }
-.court-lines::after { content: ""; position: absolute; inset: 0 49.9%; border-left: 1px solid color-mix(in oklab, var(--accent) 55%, transparent); }
-.sport-motif { position: absolute; inset: 0; opacity: .09; background-repeat: repeat; background-size: 260px 260px; mask-image: linear-gradient(to bottom, transparent 0%, black 14%, black 72%, transparent 100%); background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='260' viewBox='0 0 260 260' fill='none' stroke='%23ff1744' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'><g transform='translate(30 42) rotate(-28)'><ellipse cx='30' cy='30' rx='22' ry='28'/><line x1='30' y1='60' x2='58' y2='104'/><line x1='55' y1='102' x2='62' y2='96'/><line x1='8' y1='18' x2='52' y2='18'/><line x1='6' y1='30' x2='54' y2='30'/><line x1='8' y1='42' x2='52' y2='42'/><line x1='18' y1='4' x2='18' y2='54'/><line x1='30' y1='2' x2='30' y2='58'/><line x1='42' y1='4' x2='42' y2='54'/></g><g transform='translate(158 138) rotate(22)'><path d='M0 32 L22 6 L44 32'/><path d='M22 6 L22 38'/><path d='M9 27 L22 10'/><path d='M35 27 L22 10'/><circle cx='22' cy='42' r='6'/></g></svg>"); }
+.court-lines { display: none; }
+.sport-motif { display: none; background-repeat: repeat; background-size: 260px 260px; mask-image: linear-gradient(to bottom, transparent 0%, black 14%, black 72%, transparent 100%); background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='260' viewBox='0 0 260 260' fill='none' stroke='%23ffd84a' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'><g transform='translate(30 42) rotate(-28)'><ellipse cx='30' cy='30' rx='22' ry='28'/><line x1='30' y1='60' x2='58' y2='104'/><line x1='55' y1='102' x2='62' y2='96'/><line x1='8' y1='18' x2='52' y2='18'/><line x1='6' y1='30' x2='54' y2='30'/><line x1='8' y1='42' x2='52' y2='42'/><line x1='18' y1='4' x2='18' y2='54'/><line x1='30' y1='2' x2='30' y2='58'/><line x1='42' y1='4' x2='42' y2='54'/></g><g transform='translate(158 138) rotate(22)'><path d='M0 32 L22 6 L44 32'/><path d='M22 6 L22 38'/><path d='M9 27 L22 10'/><path d='M35 27 L22 10'/><circle cx='22' cy='42' r='6'/></g></svg>"); }
 .nav-glass { background: color-mix(in oklab, var(--popover) 86%, transparent); border: 1px solid var(--border); box-shadow: 0 15px 45px color-mix(in oklab, var(--primary) 28%, transparent), 0 0 24px color-mix(in oklab, var(--accent) 28%, transparent), inset 0 1px 0 color-mix(in oklab, #ffffff 14%, transparent); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); }
 .lime-glow { box-shadow: 0 0 24px color-mix(in oklab, var(--primary) 65%, transparent), 0 0 48px color-mix(in oklab, var(--accent) 40%, transparent); }
 .text-glow { text-shadow: 0 0 32px color-mix(in oklab, var(--primary) 48%, transparent), 0 0 14px color-mix(in oklab, var(--accent) 32%, transparent); }
@@ -162,6 +181,7 @@
 .scan-corner { position: absolute; width: 34px; height: 34px; border-color: var(--primary); }
 
 @keyframes scan { 0%, 100% { top: 14%; } 50% { top: 84%; } }
+@keyframes swirl { from { transform: scale(1.02) translate3d(-0.4%, 0, 0); } to { transform: scale(1.06) translate3d(0.6%, -0.6%, 0); } }
 @keyframes drift { from { transform: translate3d(-5%, 0, 0) scale(.85); } to { transform: translate3d(9%, 11%, 0) scale(1.2); } }
 @keyframes shuttle-float { 0%, 100% { transform: translateY(0) rotate(-8deg); } 50% { transform: translateY(-4px) rotate(5deg); } }
 @media (prefers-reduced-motion: reduce) {
@@ -171,19 +191,19 @@
 
 /* Brand logo — neon enhance pass */
 .brand-logo {
-  border: 1px solid color-mix(in oklab, var(--accent) 60%, transparent);
+  border: 1px solid color-mix(in oklab, var(--primary) 55%, transparent);
   box-shadow:
-    0 0 18px color-mix(in oklab, var(--accent) 55%, transparent),
-    0 0 32px color-mix(in oklab, var(--accent) 28%, transparent),
-    inset 0 0 20px color-mix(in oklab, var(--accent) 22%, transparent);
+    0 0 14px color-mix(in oklab, var(--primary) 55%, transparent),
+    0 0 32px color-mix(in oklab, var(--accent) 42%, transparent),
+    inset 0 0 20px color-mix(in oklab, var(--accent) 25%, transparent);
   transition: box-shadow .3s ease, transform .3s ease;
 }
-.brand-logo img { filter: saturate(1.1) contrast(1.05); }
+.brand-logo img { filter: saturate(1.05) contrast(1.03) hue-rotate(-6deg); }
 .brand-logo:hover {
   transform: translateY(-1px);
   box-shadow:
-    0 0 24px color-mix(in oklab, var(--accent) 75%, transparent),
-    0 0 48px color-mix(in oklab, var(--accent) 40%, transparent),
-    0 0 60px color-mix(in oklab, var(--primary) 25%, transparent),
-    inset 0 0 24px color-mix(in oklab, var(--accent) 30%, transparent);
+    0 0 22px color-mix(in oklab, var(--primary) 75%, transparent),
+    0 0 48px color-mix(in oklab, var(--accent) 55%, transparent),
+    0 0 70px color-mix(in oklab, var(--primary) 35%, transparent),
+    inset 0 0 24px color-mix(in oklab, var(--accent) 35%, transparent);
 }

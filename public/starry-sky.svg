@@ -1,0 +1,179 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="halo-gold" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E8E163" stop-opacity="0.85"/>
+      <stop offset="35%" stop-color="#E8E163" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#E8E163" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="halo-dixie" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#DB901C" stop-opacity="0.8"/>
+      <stop offset="35%" stop-color="#DB901C" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#DB901C" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="moon" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E8E163" stop-opacity="1"/>
+      <stop offset="60%" stop-color="#E8E163" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#E8E163" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- SHUTTLECOCK, painted with Van Gogh swirl strokes, upper-left -->
+  <g transform="translate(360 300) rotate(-25)" opacity="0.75">
+    <!-- feather halo wisps -->
+    <g stroke="#7FC5DC" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.55">
+      <path d="M -140 -40 C -90 -90, -40 -110, 0 -120"/>
+      <path d="M 140 -40 C 90 -90, 40 -110, 0 -120"/>
+      <path d="M -170 20 C -140 -20, -80 -60, 0 -70"/>
+      <path d="M 170 20 C 140 -20, 80 -60, 0 -70"/>
+    </g>
+    <!-- feather crown (brush strokes) -->
+    <g stroke="#EAF2F8" stroke-width="5" fill="none" stroke-linecap="round">
+      <path d="M 0 20 C -70 -20, -110 -70, -120 -120"/>
+      <path d="M 0 20 C -50 -30, -80 -90, -80 -140"/>
+      <path d="M 0 20 C -20 -40, -30 -100, -30 -150"/>
+      <path d="M 0 20 C 20 -40, 30 -100, 30 -150"/>
+      <path d="M 0 20 C 50 -30, 80 -90, 80 -140"/>
+      <path d="M 0 20 C 70 -20, 110 -70, 120 -120"/>
+    </g>
+    <!-- feather tips -->
+    <g stroke="#7FC5DC" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.7">
+      <path d="M -120 -120 c -8 -5, -14 -12, -14 -22"/>
+      <path d="M -80 -140 c -6 -8, -8 -18, -6 -26"/>
+      <path d="M -30 -150 c -2 -8, -2 -18, 2 -24"/>
+      <path d="M 30 -150 c 2 -8, 2 -18, -2 -24"/>
+      <path d="M 80 -140 c 6 -8, 8 -18, 6 -26"/>
+      <path d="M 120 -120 c 8 -5, 14 -12, 14 -22"/>
+    </g>
+    <!-- cork band -->
+    <path d="M -22 20 Q 0 30 22 20 L 18 48 Q 0 56 -18 48 Z" fill="#DB901C" opacity="0.85"/>
+    <!-- cork tip -->
+    <ellipse cx="0" cy="52" rx="20" ry="10" fill="#E8E163"/>
+  </g>
+
+  <!-- RACQUET, painted with Van Gogh brush energy, upper-right -->
+  <g transform="translate(1130 300) rotate(28)" opacity="0.72">
+    <!-- motion swirl around head -->
+    <g stroke="#4888C8" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.6">
+      <path d="M -120 -110 C -170 -40, -150 40, -80 90"/>
+      <path d="M 120 -110 C 170 -40, 150 40, 80 90"/>
+      <path d="M -100 -140 C -40 -170, 40 -170, 100 -140"/>
+    </g>
+    <!-- head -->
+    <ellipse cx="0" cy="-30" rx="95" ry="115" fill="none" stroke="#EAF2F8" stroke-width="6"/>
+    <!-- strings -->
+    <g stroke="#7FC5DC" stroke-width="1.6" opacity="0.75">
+      <line x1="-70" y1="-130" x2="-70" y2="70"/>
+      <line x1="-35" y1="-140" x2="-35" y2="80"/>
+      <line x1="0" y1="-145" x2="0" y2="85"/>
+      <line x1="35" y1="-140" x2="35" y2="80"/>
+      <line x1="70" y1="-130" x2="70" y2="70"/>
+      <line x1="-90" y1="-80" x2="90" y2="-80"/>
+      <line x1="-93" y1="-40" x2="93" y2="-40"/>
+      <line x1="-94" y1="0" x2="94" y2="0"/>
+      <line x1="-90" y1="40" x2="90" y2="40"/>
+    </g>
+    <!-- shaft -->
+    <path d="M -14 85 L -8 185 L 8 185 L 14 85 Z" fill="#EAF2F8"/>
+    <!-- grip -->
+    <rect x="-20" y="185" width="40" height="80" rx="8" fill="#DB901C"/>
+    <g stroke="#0B1E38" stroke-width="2" opacity="0.6">
+      <line x1="-20" y1="210" x2="20" y2="195"/>
+      <line x1="-20" y1="230" x2="20" y2="215"/>
+      <line x1="-20" y1="250" x2="20" y2="235"/>
+    </g>
+  </g>
+
+  <!-- SHUTTLE ARC — trajectory brushstroke across the sky -->
+  <g fill="none" stroke="#7FC5DC" stroke-width="2.2" stroke-linecap="round" opacity="0.5" stroke-dasharray="6 10">
+    <path d="M 280 420 C 540 180, 940 180, 1180 440"/>
+  </g>
+  <!-- tiny shuttle on the arc -->
+  <g transform="translate(730 215) rotate(-15)" opacity="0.75">
+    <g stroke="#EAF2F8" stroke-width="2" fill="none" stroke-linecap="round">
+      <path d="M 0 4 L -8 -14"/>
+      <path d="M 0 4 L -3 -16"/>
+      <path d="M 0 4 L 3 -16"/>
+      <path d="M 0 4 L 8 -14"/>
+    </g>
+    <circle cx="0" cy="6" r="3.5" fill="#DB901C"/>
+  </g>
+
+  <!-- COURT LINES in brushstroke perspective, lower band -->
+  <g stroke="#7FC5DC" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.35">
+    <!-- outer rectangle in perspective -->
+    <path d="M 420 820 L 180 900"/>
+    <path d="M 1020 820 L 1260 900"/>
+    <path d="M 420 820 L 1020 820"/>
+    <!-- center line -->
+    <path d="M 720 820 L 720 900"/>
+    <!-- service line -->
+    <path d="M 500 850 L 940 850"/>
+  </g>
+
+  <!-- Soft horizontal wind brushstrokes, kept gentle -->
+  <g stroke="#7FC5DC" stroke-width="2" fill="none" opacity="0.22" stroke-linecap="round">
+    <path d="M 0 520 C 220 490, 460 550, 720 520 C 960 490, 1200 550, 1440 520"/>
+    <path d="M 0 600 C 240 580, 480 630, 740 600 C 1000 570, 1220 620, 1440 600"/>
+  </g>
+
+  <!-- Haloed stars -->
+  <g>
+    <circle cx="220" cy="150" r="110" fill="url(#halo-gold)"/>
+    <circle cx="220" cy="150" r="11" fill="#E8E163"/>
+    <circle cx="220" cy="150" r="20" fill="none" stroke="#E8E163" stroke-opacity="0.3" stroke-width="2"/>
+  </g>
+  <g>
+    <circle cx="880" cy="110" r="80" fill="url(#halo-dixie)" opacity="0.9"/>
+    <circle cx="880" cy="110" r="7" fill="#DB901C"/>
+  </g>
+  <g>
+    <circle cx="580" cy="90" r="60" fill="url(#halo-gold)" opacity="0.85"/>
+    <circle cx="580" cy="90" r="5" fill="#E8E163"/>
+  </g>
+
+  <!-- Crescent moon, top right -->
+  <g>
+    <circle cx="1310" cy="130" r="110" fill="url(#moon)"/>
+    <circle cx="1310" cy="130" r="38" fill="#E8E163"/>
+    <circle cx="1330" cy="118" r="36" fill="#173679"/>
+  </g>
+
+  <!-- Scattered tiny stars -->
+  <g fill="#E8E163" opacity="0.85">
+    <circle cx="150" cy="60" r="2"/>
+    <circle cx="480" cy="200" r="2"/>
+    <circle cx="700" cy="340" r="1.8"/>
+    <circle cx="1000" cy="260" r="2"/>
+    <circle cx="1260" cy="360" r="2"/>
+    <circle cx="60" cy="380" r="1.8"/>
+    <circle cx="1420" cy="220" r="2"/>
+  </g>
+
+  <!-- Cypress silhouette, bottom-left -->
+  <path d="M 120 900
+           C 130 820, 140 740, 130 660
+           C 120 580, 150 500, 170 440
+           C 150 380, 160 320, 180 270
+           C 200 235, 220 230, 235 265
+           C 255 310, 250 360, 240 410
+           C 260 480, 285 560, 275 650
+           C 268 740, 280 820, 290 900 Z"
+        fill="#0B1E38" opacity="0.95"/>
+
+  <!-- Village horizon with church spire -->
+  <g fill="#0B1E38" opacity="0.92">
+    <path d="M 0 900 L 0 760 L 60 760 L 90 720 L 120 760 L 190 760 L 190 710 L 240 710 L 275 670 L 320 710 L 360 710 L 360 760 L 440 760 L 465 720 L 495 760 L 580 760 L 580 740 L 1440 740 L 1440 900 Z"/>
+    <polygon points="500,760 540,660 580,760"/>
+    <rect x="520" y="700" width="40" height="60"/>
+  </g>
+  <!-- Lit windows -->
+  <g fill="#E8E163" opacity="0.6">
+    <rect x="100" y="770" width="5" height="9"/>
+    <rect x="200" y="730" width="5" height="9"/>
+    <rect x="280" y="690" width="5" height="9"/>
+    <rect x="470" y="770" width="5" height="9"/>
+    <rect x="700" y="760" width="5" height="9"/>
+    <rect x="900" y="760" width="5" height="9"/>
+    <rect x="1100" y="760" width="5" height="9"/>
+  </g>
+</svg>
