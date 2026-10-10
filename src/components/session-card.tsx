@@ -1,10 +1,21 @@
-import { Check, Clock3, Hourglass, Layers3, MapPin, MoveUpRight, Users, Lock } from "lucide-react";
+import { Check, Clock3, Hourglass, Layers3, MapPin, MoveUpRight, Users, Lock, Zap } from "lucide-react";
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from "framer-motion";
 import type { MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/field";
 import type { Session } from "@/lib/api";
 import { courtsLabel, fmt } from "@/lib/utils";
+
+function reopenCountdown(iso: string | null) {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return null;
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `closes in ${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `closes in ${h}h` : `closes in ${h}h ${m}m`;
+}
 
 export function SessionCard({ session, joined, onJoin, onShowPlayers }: { session: Session; joined: boolean; onJoin: () => void; onShowPlayers: () => void }) {
   const reduced = useReducedMotion();
@@ -15,6 +26,7 @@ export function SessionCard({ session, joined, onJoin, onShowPlayers }: { sessio
   const left = Math.max(0, session.capacity - session.total);
   const full = left === 0;
   const closed = session.status === "closed";
+  const reopenLabel = session.status === "open" ? reopenCountdown(session.reopenUntil) : null;
   const circumference = 2 * Math.PI * 26;
   const courts = courtsLabel(session.courtNumbers);
 
@@ -51,6 +63,10 @@ export function SessionCard({ session, joined, onJoin, onShowPlayers }: { sessio
             ) : closed ? (
               <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-soft px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                 <Lock size={10} /> Voting closed
+              </span>
+            ) : reopenLabel ? (
+              <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-amber/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber">
+                <Zap size={11} /> Reopened · {reopenLabel}
               </span>
             ) : (
               <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-primary">

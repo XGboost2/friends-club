@@ -122,9 +122,11 @@ export async function migrate() {
       court_numbers TEXT,
       notes TEXT,
       status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+      reopen_until TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS sessions_date_idx ON sessions(date);
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS reopen_until TIMESTAMPTZ;
 
     CREATE TABLE IF NOT EXISTS registrations (
       id SERIAL PRIMARY KEY,

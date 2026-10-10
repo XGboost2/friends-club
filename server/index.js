@@ -56,6 +56,7 @@ function mapSession(row) {
     courtNumbers: row.court_numbers,
     notes: row.notes,
     status: row.status,
+    reopenUntil: row.reopen_until,
     playerCount: Number(row.player_count ?? 0),
     guestCount: Number(row.guest_count ?? 0),
     total: Number(row.player_count ?? 0) + Number(row.guest_count ?? 0),
@@ -77,12 +78,21 @@ function mapPlayer(row) {
   };
 }
 
-/** Close voting for any session starting within AUTO_CLOSE_HOURS. Safe to call frequently. */
+/**
+ * Close voting when:
+ *   - admin's reopen window has expired, OR
+ *   - no reopen window is set AND session starts within AUTO_CLOSE_HOURS.
+ * Safe to call frequently.
+ */
 async function autoClosePolls() {
   await query(
-    `UPDATE sessions SET status = 'closed'
+    `UPDATE sessions SET status = 'closed', reopen_until = NULL
      WHERE status = 'open'
-       AND ((date::text || ' ' || start_time)::timestamp AT TIME ZONE '${CLUB_TZ}') <= now() + interval '${AUTO_CLOSE_HOURS} hours'`,
+       AND (
+         (reopen_until IS NOT NULL AND reopen_until <= now())
+         OR (reopen_until IS NULL
+             AND ((date::text || ' ' || start_time)::timestamp AT TIME ZONE '${CLUB_TZ}') <= now() + interval '${AUTO_CLOSE_HOURS} hours')
+       )`,
   );
 }
 
@@ -289,10 +299,15 @@ app.post("/api/sessions/:id/join", async (c) => {
         [s.date, s.start_time, CLUB_TZ],
       )).rows[0];
       if (timing.past) return { status: 409, error: "This session is in the past." };
-      if (timing.closing_soon) {
+      const reopenActive = s.reopen_until && new Date(s.reopen_until).getTime() > Date.now();
+      if (timing.closing_soon && !reopenActive) {
         // Race: someone joined between auto-close sweeps. Persist the close and reject.
         await client.query(`UPDATE sessions SET status = 'closed' WHERE id = $1`, [id]);
         return { status: 409, error: `Voting closes ${AUTO_CLOSE_HOURS} hours before the session.` };
+      }
+      if (reopenActive && new Date(s.reopen_until) <= new Date()) {
+        await client.query(`UPDATE sessions SET status = 'closed', reopen_until = NULL WHERE id = $1`, [id]);
+        return { status: 409, error: "The reopen window just ended." };
       }
       const existing = (await client.query(`SELECT id FROM registrations WHERE session_id = $1 AND player_id = $2`, [id, player.id])).rows[0];
       if (existing) return { status: 409, error: "You're already in this session." };
@@ -955,6 +970,8 @@ app.patch("/api/admin/sessions/:id", async (c) => {
     notes: sessionFields.notes,
     courtNumbers: z.string().trim().max(60).optional().nullable(),
     status: z.enum(["open", "closed"]).optional(),
+    // Admin-driven reopen window. Minutes from now; wins over the 24h auto-close rule.
+    reopenMinutes: z.number().int().min(1).max(24 * 60).optional(),
   });
   const { data, error } = await parseBody(c, schema);
   if (error) return bad(c, error);
@@ -966,6 +983,12 @@ app.patch("/api/admin/sessions/:id", async (c) => {
       values.push(key === "courtNumbers" || key === "notes" ? (data[key] || null) : data[key]);
       sets.push(`${column} = $${values.length}`);
     }
+  }
+  // Reopen window — only valid when the request also sets status='open' (or the row is already open).
+  if (data.reopenMinutes != null) {
+    sets.push(`reopen_until = now() + interval '${data.reopenMinutes} minutes'`);
+  } else if (data.status === "closed") {
+    sets.push(`reopen_until = NULL`);
   }
   if (!sets.length) return bad(c, "Nothing to update.");
   values.push(id);

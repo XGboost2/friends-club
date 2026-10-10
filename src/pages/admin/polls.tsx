@@ -33,6 +33,7 @@ export default function AdminPolls() {
   const [editing, setEditing] = useState<Session | null>(null);
   const [detail, setDetail] = useState<Session | null>(null);
   const [deleting, setDeleting] = useState<Session | null>(null);
+  const [reopening, setReopening] = useState<Session | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -106,7 +107,17 @@ export default function AdminPolls() {
       <div className="grid gap-4 lg:grid-cols-2">
         <AnimatePresence>
           {sessions?.map((s, i) => (
-            <PollCard key={s.id} session={s} index={i} onCourts={(value) => patch(s.id, { courtNumbers: value }, value ? "Court numbers saved." : "Court numbers cleared.")} onToggle={() => patch(s.id, { status: s.status === "open" ? "closed" : "open" }, s.status === "open" ? "Voting closed." : "Voting reopened.")} onEdit={() => setEditing(s)} onDelete={() => setDeleting(s)} onOpen={() => setDetail(s)} />
+            <PollCard
+              key={s.id}
+              session={s}
+              index={i}
+              onCourts={(value) => patch(s.id, { courtNumbers: value }, value ? "Court numbers saved." : "Court numbers cleared.")}
+              onClose={() => patch(s.id, { status: "closed" }, "Voting closed.")}
+              onReopen={() => setReopening(s)}
+              onEdit={() => setEditing(s)}
+              onDelete={() => setDeleting(s)}
+              onOpen={() => setDetail(s)}
+            />
           ))}
         </AnimatePresence>
       </div>
@@ -116,6 +127,15 @@ export default function AdminPolls() {
       <PollForm open={creating} onClose={() => setCreating(false)} venues={venues} onSaved={load} />
       <PollForm open={!!editing} session={editing} onClose={() => setEditing(null)} venues={venues} onSaved={load} />
       <PollDetail session={detail} onClose={() => setDetail(null)} onChanged={load} />
+      <ReopenSheet
+        session={reopening}
+        onClose={() => setReopening(null)}
+        onReopen={async (minutes) => {
+          if (!reopening) return;
+          await patch(reopening.id, { status: "open", reopenMinutes: minutes }, `Voting reopened for ${minutes >= 60 && minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes} min`}.`);
+          setReopening(null);
+        }}
+      />
       <Sheet open={!!deleting} onClose={() => setDeleting(null)} title="Delete this poll?" subtitle={deleting ? `${fmt(deleting.date, "EEEE, d MMMM")} · ${deleting.total} signed up` : null}>
         <p className="pt-3 text-sm leading-relaxed text-muted-foreground">Everyone who joined will lose their spot. This can't be undone.</p>
         <div className="grid gap-3 pb-4 pt-6 sm:grid-cols-2">
@@ -131,12 +151,13 @@ export default function AdminPolls() {
   );
 }
 
-function PollCard({ session: s, index, onCourts, onToggle, onEdit, onDelete, onOpen }: { session: Session; index: number; onCourts: (v: string) => void; onToggle: () => void; onEdit: () => void; onDelete: () => void; onOpen: () => void }) {
+function PollCard({ session: s, index, onCourts, onClose, onReopen, onEdit, onDelete, onOpen }: { session: Session; index: number; onCourts: (v: string) => void; onClose: () => void; onReopen: () => void; onEdit: () => void; onDelete: () => void; onOpen: () => void }) {
   const [courts, setCourts] = useState(s.courtNumbers ?? "");
   const [menu, setMenu] = useState(false);
   useEffect(() => setCourts(s.courtNumbers ?? ""), [s.courtNumbers]);
   const pct = Math.min(100, (s.total / s.capacity) * 100);
   const dirty = courts.trim() !== (s.courtNumbers ?? "");
+  const reopenActive = s.status === "open" && s.reopenUntil && new Date(s.reopenUntil).getTime() > Date.now();
 
   return (
     <motion.article layout initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ delay: index * 0.04 }} className={cn("glass-panel relative rounded-2xl p-5 sm:p-6", s.status === "closed" && "opacity-80")}>
@@ -159,7 +180,9 @@ function PollCard({ session: s, index, onCourts, onToggle, onEdit, onDelete, onO
           </div>
         </button>
         <div className="relative flex shrink-0 items-center gap-2">
-          <span className={cn("rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider", s.status === "open" ? "bg-primary/10 text-primary" : "bg-soft text-muted-foreground")}>{s.status === "open" ? "Open" : "Closed"}</span>
+          <span className={cn("rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider", reopenActive ? "bg-amber/15 text-amber" : s.status === "open" ? "bg-primary/10 text-primary" : "bg-soft text-muted-foreground")}>
+            {reopenActive ? `Reopened · until ${fmt(s.reopenUntil!, "HH:mm")}` : s.status === "open" ? "Open" : "Closed"}
+          </span>
           <button onClick={() => setMenu((m) => !m)} className="grid size-9 place-items-center rounded-lg border border-border bg-soft text-muted-foreground transition hover:text-foreground" aria-label="Poll actions">
             <MoreHorizontal size={17} />
           </button>
@@ -171,7 +194,7 @@ function PollCard({ session: s, index, onCourts, onToggle, onEdit, onDelete, onO
                   {[
                     { label: "See players", icon: Users, fn: onOpen },
                     { label: "Edit details", icon: Pencil, fn: onEdit },
-                    { label: s.status === "open" ? "Close voting" : "Reopen voting", icon: s.status === "open" ? Lock : LockOpen, fn: onToggle },
+                    { label: s.status === "open" ? "Close voting" : "Reopen voting", icon: s.status === "open" ? Lock : LockOpen, fn: s.status === "open" ? onClose : onReopen },
                     { label: "Delete poll", icon: Trash2, fn: onDelete, danger: true },
                   ].map(({ label, icon: Icon, fn, danger }) => (
                     <button key={label} onClick={() => { setMenu(false); fn(); }} className={cn("flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-soft", danger && "text-destructive")}>
@@ -223,6 +246,49 @@ function PollCard({ session: s, index, onCourts, onToggle, onEdit, onDelete, onO
         </Button>
       </form>
     </motion.article>
+  );
+}
+
+function ReopenSheet({ session, onClose, onReopen }: { session: Session | null; onClose: () => void; onReopen: (minutes: number) => void }) {
+  const [custom, setCustom] = useState("");
+  useEffect(() => { if (!session) setCustom(""); }, [session]);
+  const presets = [30, 60, 120, 240];
+  const label = (m: number) => (m < 60 ? `${m} min` : m % 60 === 0 ? `${m / 60} h` : `${Math.floor(m / 60)}h ${m % 60}m`);
+  return (
+    <Sheet open={!!session} onClose={onClose} title="Reopen voting" subtitle={session ? `${fmt(session.date, "EEEE, d MMMM")} · ${session.startTime}–${session.endTime}` : null}>
+      <p className="pt-3 text-sm leading-relaxed text-muted-foreground">
+        Pick how long players can join again. The poll auto-closes when the window ends.
+      </p>
+      <div className="mt-5 grid grid-cols-2 gap-3 pb-2">
+        {presets.map((m) => (
+          <Button key={m} variant="glass" size="lg" onClick={() => onReopen(m)}>
+            {label(m)}
+          </Button>
+        ))}
+      </div>
+      <form
+        className="mt-3 flex items-center gap-2 pb-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const n = Number(custom);
+          if (!Number.isInteger(n) || n < 1 || n > 24 * 60) return;
+          onReopen(n);
+        }}
+      >
+        <input
+          className="field h-11 flex-1"
+          type="number"
+          min={1}
+          max={24 * 60}
+          placeholder="Custom (minutes, max 1440)"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+        />
+        <Button type="submit" variant="neon" className="h-11 px-4" disabled={!custom || Number(custom) < 1}>
+          Reopen
+        </Button>
+      </form>
+    </Sheet>
   );
 }
 

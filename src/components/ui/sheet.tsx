@@ -30,9 +30,9 @@ export function Sheet({ open, onClose, title, subtitle, children, className }: {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: "100%", opacity: 0 }}
             transition={{ type: "spring", damping: 30, stiffness: 320 }}
-            className={cn("relative flex max-h-[92dvh] w-full flex-col rounded-t-3xl border border-border bg-[oklch(0.17_0.02_262/96%)] shadow-2xl backdrop-blur-2xl sm:max-w-lg sm:rounded-3xl", className)}
+            className={cn("relative flex max-h-[92dvh] w-full flex-col rounded-t-3xl border border-border bg-popover text-popover-foreground shadow-2xl backdrop-blur-2xl sm:max-w-lg sm:rounded-3xl", className)}
           >
-            <div className="mx-auto mt-3 h-1.5 w-12 shrink-0 rounded-full bg-white/15 sm:hidden" />
+            <div className="mx-auto mt-3 h-1.5 w-12 shrink-0 rounded-full bg-foreground/20 sm:hidden" />
             {(title || subtitle) && (
               <div className="flex shrink-0 items-start justify-between gap-4 px-5 pb-2 pt-4 sm:px-7 sm:pt-7">
                 <div className="min-w-0">

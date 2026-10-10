@@ -9,6 +9,7 @@ export type Session = {
   courtNumbers: string | null;
   notes: string | null;
   status: "open" | "closed";
+  reopenUntil: string | null;
   playerCount: number;
   guestCount: number;
   total: number;

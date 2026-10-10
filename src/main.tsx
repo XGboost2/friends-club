@@ -49,7 +49,7 @@ function App() {
             </Routes>
             </Suspense>
           </AppShell>
-          <Toaster theme="dark" position="top-center" richColors toastOptions={{ style: { fontFamily: "Inter, sans-serif" } }} />
+          <Toaster theme="light" position="top-center" richColors toastOptions={{ style: { fontFamily: "Inter, sans-serif" } }} />
         </PlayerProvider>
       </AdminProvider>
     </BrowserRouter>

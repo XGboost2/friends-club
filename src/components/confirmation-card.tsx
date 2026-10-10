@@ -49,7 +49,7 @@ export function ConfirmationCard({ data, onClose }: { data: Confirmation | null;
             exit={{ scale: 0.9, y: 30, opacity: 0 }}
             transition={{ type: "spring", damping: 18, stiffness: 200 }}
             style={{ transformPerspective: 1200 }}
-            className="relative w-full max-w-md overflow-hidden rounded-[2rem] border border-primary/30 bg-[oklch(0.17_0.03_262)] p-7 text-center shadow-[0_0_80px_oklch(0.92_0.22_123/18%)] sm:p-9"
+            className="relative w-full max-w-md overflow-hidden rounded-[2rem] border border-primary/30 bg-popover text-popover-foreground p-7 text-center shadow-[0_0_80px_oklch(0.92_0.22_123/18%)] sm:p-9"
           >
             <div className="pointer-events-none absolute -top-24 left-1/2 size-72 -translate-x-1/2 rounded-full bg-primary/25 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-28 -right-10 size-60 rounded-full bg-cyan/15 blur-3xl" />
