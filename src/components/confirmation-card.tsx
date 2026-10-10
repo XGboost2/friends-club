@@ -27,7 +27,7 @@ export function ConfirmationCard({ data, onClose }: { data: Confirmation | null;
 
   useEffect(() => {
     if (!data) return;
-    const colors = ["#c6ff3d", "#22d3ee", "#8b5cf6", "#ffffff"];
+    const colors = ["#d7141a", "#ffc72c", "#0b0f1a", "#ffffff"];
     const burst = (x: number) => confetti({ particleCount: 90, spread: 75, startVelocity: 48, origin: { x, y: 0.65 }, colors, ticks: 220, scalar: 1.05, zIndex: 80 });
     burst(0.2);
     burst(0.8);
@@ -49,7 +49,7 @@ export function ConfirmationCard({ data, onClose }: { data: Confirmation | null;
             exit={{ scale: 0.9, y: 30, opacity: 0 }}
             transition={{ type: "spring", damping: 18, stiffness: 200 }}
             style={{ transformPerspective: 1200 }}
-            className="relative w-full max-w-md overflow-hidden rounded-[2rem] border border-primary/30 bg-popover text-popover-foreground p-7 text-center shadow-[0_0_80px_oklch(0.92_0.22_123/18%)] sm:p-9"
+            className="relative w-full max-w-md overflow-hidden rounded-[2rem] border border-primary/30 bg-popover text-popover-foreground p-7 text-center shadow-[0_0_80px_color-mix(in_oklab,var(--primary)_22%,transparent)] sm:p-9"
           >
             <div className="pointer-events-none absolute -top-24 left-1/2 size-72 -translate-x-1/2 rounded-full bg-primary/25 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-28 -right-10 size-60 rounded-full bg-cyan/15 blur-3xl" />
@@ -57,7 +57,7 @@ export function ConfirmationCard({ data, onClose }: { data: Confirmation | null;
               initial={{ scale: 0, rotate: -40 }}
               animate={{ scale: 1, rotate: 0 }}
               transition={{ type: "spring", damping: 10, stiffness: 180, delay: 0.15 }}
-              className="relative mx-auto grid size-24 place-items-center rounded-[1.75rem] bg-primary text-primary-foreground shadow-[0_0_60px_oklch(0.92_0.22_123/45%)]"
+              className="relative mx-auto grid size-24 place-items-center rounded-[1.75rem] bg-primary text-primary-foreground shadow-[0_0_60px_color-mix(in_oklab,var(--primary)_45%,transparent)]"
             >
               <motion.div animate={{ y: [0, -6, 0], rotate: [-8, 6, -8] }} transition={{ repeat: Infinity, duration: 2.4, ease: "easeInOut" }}>
                 <ShuttleMark className="size-14 [&_path:last-child]:stroke-primary" />

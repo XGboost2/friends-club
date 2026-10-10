@@ -93,7 +93,7 @@ export default function TournamentPage() {
 function TournamentPlaceholder() {
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-2xl flex-col items-center justify-center px-5 text-center">
-      <motion.div initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", damping: 12, stiffness: 220 }} className="mb-6 grid size-20 place-items-center rounded-3xl bg-primary/15 text-primary shadow-[0_0_45px_oklch(0.92_0.22_123/18%)]">
+      <motion.div initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", damping: 12, stiffness: 220 }} className="mb-6 grid size-20 place-items-center rounded-3xl bg-primary/15 text-primary shadow-[0_0_45px_color-mix(in_oklab,var(--primary)_22%,transparent)]">
         <Trophy size={38} />
       </motion.div>
       <Eyebrow>Tournaments</Eyebrow>
