@@ -27,7 +27,7 @@ export function ConfirmationCard({ data, onClose }: { data: Confirmation | null;
 
   useEffect(() => {
     if (!data) return;
-    const colors = ["#d7141a", "#ffc72c", "#0b0f1a", "#ffffff"];
+    const colors = ["#ff3d4a", "#2bb5c5", "#5fd9e4", "#ffffff"];
     const burst = (x: number) => confetti({ particleCount: 90, spread: 75, startVelocity: 48, origin: { x, y: 0.65 }, colors, ticks: 220, scalar: 1.05, zIndex: 80 });
     burst(0.2);
     burst(0.8);

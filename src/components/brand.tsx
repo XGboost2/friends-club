@@ -13,8 +13,8 @@ export function ShuttleMark({ className = "shuttle-mark size-6" }: { className?:
 export function ShuttleLogo({ compact = false }: { compact?: boolean }) {
   return (
     <Link to="/" className="inline-flex shrink-0 items-center gap-3" aria-label="Friends Club home">
-      <span className="grid size-10 place-items-center rounded-xl border border-primary/25 bg-primary/10 text-primary shadow-[inset_0_1px_0_var(--border)]">
-        <ShuttleMark />
+      <span className={`brand-logo relative grid shrink-0 place-items-center overflow-hidden rounded-2xl ${compact ? "size-10" : "size-12"}`}>
+        <img src="/logo.png" alt="Friends Club" className="size-full object-cover" draggable={false} />
       </span>
       {!compact && (
         <span className="font-display text-lg font-bold leading-none text-foreground">
