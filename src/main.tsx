@@ -3,7 +3,11 @@ import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster } from "sonner";
+import "@liqui-design/glass/tokens.css";
+import "@liqui-design/glass/styles.css";
 import "./styles.css";
+
+document.documentElement.classList.add("dark");
 import { AppShell } from "@/components/app-shell";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { AdminProvider } from "@/lib/admin";

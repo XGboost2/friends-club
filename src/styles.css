@@ -82,16 +82,17 @@
 }
 
 @utility glass-panel {
+  position: relative;
   background:
-    linear-gradient(145deg, color-mix(in oklab, #ffffff 10%, transparent), color-mix(in oklab, #ffffff 2%, transparent) 52%),
-    var(--surface);
-  border: 1px solid var(--border);
+    linear-gradient(145deg, var(--lq-rim-hi), transparent 55%),
+    var(--lq-tint);
+  border: 1px solid var(--lq-control-rim);
   box-shadow:
-    inset 0 1px 0 color-mix(in oklab, #ffffff 14%, transparent),
-    0 0 0 1px color-mix(in oklab, var(--primary) 10%, transparent),
-    0 18px 60px color-mix(in oklab, var(--accent) 22%, transparent);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
+    inset 0 1px 0 var(--lq-rim-hi),
+    inset 0 -1px 0 var(--lq-rim-lo),
+    var(--lq-shadow);
+  backdrop-filter: blur(28px) saturate(1.5);
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
 }
 
 @utility glow-hover {
@@ -206,4 +207,22 @@
     0 0 48px color-mix(in oklab, var(--accent) 55%, transparent),
     0 0 70px color-mix(in oklab, var(--primary) 35%, transparent),
     inset 0 0 24px color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+/* liqui glass — Starry Night tokens so modal surfaces tint to the sky */
+:root, .dark, [data-theme='dark'] {
+  --lq-text: rgba(234, 242, 248, 0.96);
+  --lq-text-dim: rgba(127, 197, 220, 0.78);
+  --lq-tint: rgba(23, 54, 121, 0.52);
+  --lq-tint-deep: rgba(11, 30, 56, 0.42);
+  --lq-rim-hi: rgba(232, 225, 99, 0.42);
+  --lq-rim-lo: rgba(127, 197, 220, 0.22);
+  --lq-shadow: 0 24px 60px rgba(0, 4, 20, 0.55), 0 4px 14px rgba(0, 4, 20, 0.35);
+  --lq-highlight: rgba(255, 255, 255, 0.26);
+  --lq-control: rgba(72, 136, 200, 0.28);
+  --lq-control-rim: rgba(127, 197, 220, 0.35);
+  --lq-accent: #E8E163;
+  --lq-danger: #DB901C;
+  --lq-danger-text: #0B1E38;
+  --lq-scrim: rgba(5, 10, 25, 0.55);
 }
