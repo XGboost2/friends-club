@@ -82,9 +82,13 @@ function mapPlayer(row) {
  * Close voting when:
  *   - admin's reopen window has expired, OR
  *   - no reopen window is set AND session starts within AUTO_CLOSE_HOURS.
- * Safe to call frequently.
+ * Debounced to at most once per 60s on the request path. No background interval:
+ * waking Neon every 5 min would burn through the free CU-hour allowance.
  */
-async function autoClosePolls() {
+let lastAutoCloseAt = 0;
+async function autoClosePolls({ force = false } = {}) {
+  if (!force && Date.now() - lastAutoCloseAt < 60_000) return;
+  lastAutoCloseAt = Date.now();
   await query(
     `UPDATE sessions SET status = 'closed', reopen_until = NULL
      WHERE status = 'open'
@@ -1897,8 +1901,10 @@ if (existsSync("./dist/index.html")) {
 await migrate();
 await cleanupOldRecords();
 await autoClosePolls();
-setInterval(() => cleanupOldRecords().catch((e) => console.error("cleanup failed", e)), 60 * 60 * 1000);
-setInterval(() => autoClosePolls().catch((e) => console.error("auto-close failed", e)), 5 * 60 * 1000);
+// No background setInterval: both sweeps are debounced on the request path.
+// Keeping Neon awake 24/7 for 5-min polls burns ~180 CU-hours/month (over the 100 free).
+// Freshness guarantees: autoClosePolls debounces to 60s per request; cleanupOldRecords
+// runs when an admin loads /api/admin/sessions or /api/admin/records.
 
 const port = Number(process.env.PORT || 3000);
 serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, () => console.log(`Friends Club running on :${port}`));

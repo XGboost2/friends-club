@@ -88,21 +88,24 @@ export async function migrate() {
   `);
 
   // Backfill Multisport card onto the player profile from their most recent Multisport
-  // registration. Runs once per player (NULL guard makes it idempotent). Lets existing
-  // users keep joining without first visiting their profile.
-  await query(`
-    UPDATE players p
-       SET multisport_card_number = r.card_number,
-           multisport_holder_name = r.holder_name
-      FROM (
-        SELECT DISTINCT ON (player_id) player_id, card_number, holder_name
-          FROM registrations
-          WHERE uses_multisport AND card_number IS NOT NULL
-          ORDER BY player_id, created_at DESC
-      ) r
-     WHERE p.id = r.player_id
-       AND p.multisport_card_number IS NULL;
-  `);
+  // registration. Skipped on a fresh DB where `registrations` doesn't exist yet —
+  // the full schema below will create it; nothing to backfill then anyway.
+  const hasRegistrations = (await query(`SELECT to_regclass('registrations') AS t`)).rows[0].t;
+  if (hasRegistrations) {
+    await query(`
+      UPDATE players p
+         SET multisport_card_number = r.card_number,
+             multisport_holder_name = r.holder_name
+        FROM (
+          SELECT DISTINCT ON (player_id) player_id, card_number, holder_name
+            FROM registrations
+            WHERE uses_multisport AND card_number IS NOT NULL
+            ORDER BY player_id, created_at DESC
+        ) r
+       WHERE p.id = r.player_id
+         AND p.multisport_card_number IS NULL;
+    `);
+  }
 
   await query(`
 
