@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowDownRight, ArrowRight, CalendarDays, MapPin, Sparkles } from "lucide-react";
 import { useClerk } from "@clerk/react";
@@ -7,7 +7,8 @@ import { MonthCalendar } from "@/components/month-calendar";
 import { SessionCard } from "@/components/session-card";
 import { JoinSheet } from "@/components/join-sheet";
 import { AttendeesSheet } from "@/components/attendees-sheet";
-import { ConfirmationCard, type Confirmation } from "@/components/confirmation-card";
+import type { Confirmation } from "@/components/confirmation-card";
+const ConfirmationCard = lazy(() => import("@/components/confirmation-card").then((m) => ({ default: m.ConfirmationCard })));
 import { Button } from "@/components/ui/button";
 import { Eyebrow, Spinner } from "@/components/ui/field";
 import { api, type Session } from "@/lib/api";
@@ -210,7 +211,11 @@ export default function Home() {
         }}
       />
       <AttendeesSheet session={showPlayers} onClose={() => setShowPlayers(null)} />
-      <ConfirmationCard data={confirmation} onClose={() => setConfirmation(null)} />
+      {confirmation && (
+        <Suspense fallback={null}>
+          <ConfirmationCard data={confirmation} onClose={() => setConfirmation(null)} />
+        </Suspense>
+      )}
     </div>
   );
 }

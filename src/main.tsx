@@ -13,12 +13,12 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { AdminProvider } from "@/lib/admin";
 import { PlayerProvider } from "@/lib/player";
 import Home from "@/pages/home";
-import MySessions from "@/pages/my-sessions";
 import AdminLogin, { RequireAdmin } from "@/pages/admin/login";
 import { Spinner } from "@/components/ui/field";
 
 const Tournament = lazy(() => import("@/pages/tournament"));
 const Profile = lazy(() => import("@/pages/profile"));
+const MySessions = lazy(() => import("@/pages/my-sessions"));
 const AdminPolls = lazy(() => import("@/pages/admin/polls"));
 const AdminCheckin = lazy(() => import("@/pages/admin/checkin"));
 const AdminRecords = lazy(() => import("@/pages/admin/records"));

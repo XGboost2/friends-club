@@ -221,6 +221,9 @@ app.get("/api/sessions", async (c) => {
   await autoClosePolls();
   const { rows } = await query(`${SESSION_STATS_SQL} WHERE s.date >= current_date ORDER BY s.date, s.start_time`);
   const today = (await query(`SELECT current_date AS d`)).rows[0].d;
+  // Short public cache: browsers and any CDN can serve this for 30s. Keeps the
+  // homepage snappy for repeat visitors and shields the DB from refresh storms.
+  c.header("Cache-Control", "public, max-age=30, s-maxage=30");
   return c.json({ today, sessions: rows.map(mapSession) });
 });
 
