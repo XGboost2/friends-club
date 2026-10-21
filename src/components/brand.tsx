@@ -29,12 +29,8 @@ export function ShuttleLogo({ compact = false }: { compact?: boolean }) {
 export function AmbientBackground() {
   return (
     <div className="ambient-stage" aria-hidden="true">
-      <div className="aurora aurora-lime" />
-      <div className="aurora aurora-cyan" />
       <div className="aurora aurora-violet" />
       <div className="court-grid" />
-      <div className="court-lines" />
-      <div className="sport-motif" />
     </div>
   );
 }

@@ -1,10 +1,7 @@
 import { createPortal } from "react-dom";
 import { useEffect, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { LiquiGlass } from "@liqui-design/glass";
 import confetti from "canvas-confetti";
-
-const MotionGlass = motion.create(LiquiGlass);
 import { CalendarCheck, Clock3, CreditCard, Layers3, MapPin, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -42,24 +39,17 @@ export function ConfirmationCard({ data, onClose }: { data: Confirmation | null;
     <AnimatePresence>
       {data && (
         <motion.div className="fixed inset-0 z-[70] grid place-items-center overflow-y-auto p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <motion.div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={onClose} />
-          <MotionGlass
+          <motion.div className="absolute inset-0 bg-black/70" onClick={onClose} />
+          <motion.div
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-title"
-            radius={32}
-            refraction={130}
-            bezel={28}
-            frost={0.7}
-            elevated
-            dispersion={0.5}
             initial={{ scale: 0.8, y: 40, rotateX: 18, opacity: 0 }}
             animate={{ scale: 1, y: 0, rotateX: 0, opacity: 1 }}
             exit={{ scale: 0.9, y: 30, opacity: 0 }}
             transition={{ type: "spring", damping: 18, stiffness: 200 }}
             style={{ transformPerspective: 1200 }}
-            className="relative w-full max-w-md text-foreground"
-            contentClassName="p-7 text-center sm:p-9"
+            className="relative w-full max-w-md overflow-hidden rounded-[2rem] border border-primary/30 bg-popover p-7 text-center text-popover-foreground shadow-2xl sm:p-9"
           >
             <div className="pointer-events-none absolute -top-24 left-1/2 size-72 -translate-x-1/2 rounded-full bg-primary/25 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-28 -right-10 size-60 rounded-full bg-cyan/15 blur-3xl" />
@@ -121,7 +111,7 @@ export function ConfirmationCard({ data, onClose }: { data: Confirmation | null;
                 Let's go!
               </Button>
             </motion.div>
-          </MotionGlass>
+          </motion.div>
         </motion.div>
       )}
     </AnimatePresence>,

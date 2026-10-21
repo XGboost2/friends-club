@@ -226,3 +226,10 @@
   --lq-danger-text: #0B1E38;
   --lq-scrim: rgba(5, 10, 25, 0.55);
 }
+
+/* Mobile: trim GPU-heavy effects so paint/scroll stays smooth on low-end phones. */
+@media (max-width: 768px) {
+  .glass-panel { backdrop-filter: blur(6px) saturate(1.2); -webkit-backdrop-filter: blur(6px) saturate(1.2); }
+  .aurora { filter: blur(60px); opacity: .12 !important; }
+  .nav-glass { backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+}

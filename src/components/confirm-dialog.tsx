@@ -1,12 +1,9 @@
 import { createPortal } from "react-dom";
 import { useCallback, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { LiquiGlass } from "@liqui-design/glass";
 import { AlertTriangle, HelpCircle, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-const MotionGlass = motion.create(LiquiGlass);
 
 export type ConfirmOptions = {
   title: string;
@@ -52,21 +49,15 @@ export function useConfirm() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
         >
-          <motion.div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => done(false)} />
-          <MotionGlass
+          <motion.div className="absolute inset-0 bg-black/60" onClick={() => done(false)} />
+          <motion.div
             role="alertdialog"
             aria-modal="true"
-            radius={28}
-            refraction={100}
-            bezel={24}
-            frost={0.65}
-            elevated
             initial={{ scale: 0.9, y: 22, opacity: 0 }}
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.94, y: 12, opacity: 0 }}
             transition={{ type: "spring", damping: 20, stiffness: 260 }}
-            className="relative w-full max-w-sm text-foreground"
-            contentClassName="p-6 text-center sm:p-8"
+            className="relative w-full max-w-sm rounded-3xl border border-border bg-popover p-6 text-center text-popover-foreground shadow-2xl sm:p-8"
           >
             <motion.div
               initial={{ scale: 0, rotate: -20 }}
@@ -88,7 +79,7 @@ export function useConfirm() {
                 {state.options.confirmLabel ?? "Confirm"}
               </Button>
             </div>
-          </MotionGlass>
+          </motion.div>
         </motion.div>
       )}
     </AnimatePresence>,

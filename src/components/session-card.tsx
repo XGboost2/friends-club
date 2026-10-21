@@ -30,8 +30,11 @@ export function SessionCard({ session, joined, onJoin, onShowPlayers }: { sessio
   const circumference = 2 * Math.PI * 26;
   const courts = courtsLabel(session.courtNumbers);
 
+  // Skip the tilt effect on touch devices — the pointer movement never fires there
+  // and the compositor cost on mobile GPUs isn't worth the look.
+  const supportsHover = typeof window !== "undefined" && window.matchMedia?.("(hover: hover)").matches;
   function handleMove(event: MouseEvent<HTMLElement>) {
-    if (reduced) return;
+    if (reduced || !supportsHover) return;
     const rect = event.currentTarget.getBoundingClientRect();
     x.set((event.clientX - rect.left) / rect.width - 0.5);
     y.set((event.clientY - rect.top) / rect.height - 0.5);
