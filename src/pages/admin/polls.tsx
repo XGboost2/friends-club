@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarPlus, Check, Clock3, CreditCard, Layers3, Lock, LockOpen, MapPin, MoreHorizontal, Pencil, ShieldCheck, Trash2, UserPlus, Users, X } from "lucide-react";
+import { CalendarPlus, Check, Clock3, CreditCard, Layers3, ListOrdered, Lock, LockOpen, MapPin, MoreHorizontal, Pencil, ShieldCheck, Trash2, UserPlus, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Eyebrow, Field, Spinner } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { MonthCalendar } from "@/components/month-calendar";
-import { api, type Admin, type Session, type SessionDetail } from "@/lib/api";
+import { api, type Admin, type Registration, type Session, type SessionDetail } from "@/lib/api";
 import { useConfirm } from "@/components/confirm-dialog";
 import { cn, fmt, isoDay, maskCard } from "@/lib/utils";
 
@@ -457,35 +457,55 @@ function PollDetail({ session, onClose, onChanged }: { session: Session | null; 
           </div>
         )}
         {detail?.registrations.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">Nobody has joined yet.</p>}
-        {detail?.registrations.map((r) => (
-          <div key={r.id} className="rounded-xl border border-border bg-soft px-4 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate font-medium">{r.name}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {r.multisport ? (
-                    <>
-                      Multisport · <span className="font-mono">{maskCard(r.cardNumber)}</span> · {r.holderName}
-                    </>
-                  ) : (
-                    "Paying at venue"
-                  )}
+        {detail && (() => {
+          const confirmed = detail.registrations.filter((r) => r.queueStatus !== "waitlist");
+          const waitlist = detail.registrations.filter((r) => r.queueStatus === "waitlist");
+          const renderRow = (r: Registration) => (
+            <div key={r.id} className="rounded-xl border border-border bg-soft px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">
+                    {r.name}
+                    {r.waitlistPosition && <span className="ml-2 text-xs font-normal text-amber">#{r.waitlistPosition}</span>}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {r.multisport ? (
+                      <>
+                        Multisport · <span className="font-mono">{maskCard(r.cardNumber)}</span> · {r.holderName}
+                      </>
+                    ) : (
+                      "Paying at venue"
+                    )}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className={cn("rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider", r.status === "paid" ? "bg-emerald/15 text-emerald" : "bg-amber/15 text-amber")}>{r.status}</span>
+                  <button onClick={() => removePlayer(r.id, r.name)} className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-destructive/15 hover:text-destructive" aria-label={`Remove ${r.name}`}>
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
+              {r.guests.length > 0 && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <UserPlus size={12} className="text-violet" /> {r.guests.map((g) => g.name).join(", ")}
                 </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <span className={cn("rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider", r.status === "paid" ? "bg-emerald/15 text-emerald" : "bg-amber/15 text-amber")}>{r.status}</span>
-                <button onClick={() => removePlayer(r.id, r.name)} className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-destructive/15 hover:text-destructive" aria-label={`Remove ${r.name}`}>
-                  <Trash2 size={15} />
-                </button>
-              </div>
+              )}
             </div>
-            {r.guests.length > 0 && (
-              <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <UserPlus size={12} className="text-violet" /> {r.guests.map((g) => g.name).join(", ")}
-              </p>
-            )}
-          </div>
-        ))}
+          );
+          return (
+            <>
+              {confirmed.map(renderRow)}
+              {waitlist.length > 0 && (
+                <>
+                  <h3 className="mt-6 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-amber">
+                    <ListOrdered size={13} /> Waitlist · {waitlist.length}
+                  </h3>
+                  {waitlist.map(renderRow)}
+                </>
+              )}
+            </>
+          );
+        })()}
       </div>
       {confirmDialog}
     </Sheet>

@@ -1,3 +1,5 @@
+export type QueueStatus = "confirmed" | "waitlist";
+
 export type Session = {
   id: number;
   date: string;
@@ -13,9 +15,18 @@ export type Session = {
   playerCount: number;
   guestCount: number;
   total: number;
+  waitlistCount: number;
   players: string[];
   multisportCount?: number;
-  me?: { multisport: boolean; status: "pending" | "paid"; guests: string[]; isMine: boolean; canLeave: boolean } | null;
+  me?: {
+    multisport: boolean;
+    status: "pending" | "paid";
+    queueStatus: QueueStatus;
+    waitlistPosition: number | null;
+    guests: string[];
+    isMine: boolean;
+    canLeave: boolean;
+  } | null;
 };
 
 export type Guest = {
@@ -34,6 +45,8 @@ export type Registration = {
   cardNumber: string | null;
   holderName: string | null;
   status: "pending" | "paid";
+  queueStatus: QueueStatus;
+  waitlistPosition: number | null;
   paidAt: string | null;
   paidMethod: "scan" | "manual" | null;
   guests: Guest[];

@@ -45,6 +45,8 @@ const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "use HH:MM");
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "use YYYY-MM-DD");
 
 function mapSession(row) {
+  const playerCount = Number(row.player_count ?? 0);
+  const guestCount = Number(row.guest_count ?? 0);
   return {
     id: row.id,
     date: row.date,
@@ -57,9 +59,10 @@ function mapSession(row) {
     notes: row.notes,
     status: row.status,
     reopenUntil: row.reopen_until,
-    playerCount: Number(row.player_count ?? 0),
-    guestCount: Number(row.guest_count ?? 0),
-    total: Number(row.player_count ?? 0) + Number(row.guest_count ?? 0),
+    playerCount,
+    guestCount,
+    total: playerCount + guestCount,
+    waitlistCount: Number(row.waitlist_count ?? 0),
     players: row.players ?? [],
   };
 }
@@ -100,13 +103,43 @@ async function autoClosePolls({ force = false } = {}) {
   );
 }
 
+/**
+ * SESSION_STATS_SQL — per session, splits registrations into confirmed vs waitlist.
+ *
+ * FIFO rule: order registrations by created_at. Each booking takes 1 slot for the
+ * player plus one per guest. All-or-nothing: a booking is confirmed only when its
+ * cumulative slot count fits within capacity. If the booking straddles the edge,
+ * the whole thing goes to the waitlist (so a 3-slot booking never gets 2 confirmed
+ * + 1 waitlisted). Unlimited capacity (NULL) means everyone is confirmed.
+ */
 const SESSION_STATS_SQL = `
   SELECT s.*,
     ((s.date::text || ' ' || s.start_time)::timestamp AT TIME ZONE '${CLUB_TZ}') AS start_at,
-    (SELECT count(*) FROM registrations r WHERE r.session_id = s.id) AS player_count,
-    (SELECT count(*) FROM guests g JOIN registrations r ON r.id = g.registration_id WHERE r.session_id = s.id) AS guest_count,
-    COALESCE((SELECT json_agg(r.player_name ORDER BY r.created_at) FROM registrations r WHERE r.session_id = s.id), '[]'::json) AS players
-  FROM sessions s`;
+    COALESCE(slots.confirmed_players, 0) AS player_count,
+    COALESCE(slots.confirmed_guests, 0) AS guest_count,
+    COALESCE(slots.waitlist_slots, 0) AS waitlist_count,
+    COALESCE(slots.player_names, '[]'::json) AS players
+  FROM sessions s
+  LEFT JOIN LATERAL (
+    WITH ordered AS (
+      SELECT r.id, r.player_name, r.created_at,
+             1 AS player_slot,
+             COALESCE((SELECT count(*)::int FROM guests g WHERE g.registration_id = r.id), 0) AS guest_slots
+      FROM registrations r
+      WHERE r.session_id = s.id
+    ),
+    cum AS (
+      SELECT id, player_name, player_slot, guest_slots, created_at,
+             SUM(player_slot + guest_slots) OVER (ORDER BY created_at, id) AS cum_n
+      FROM ordered
+    )
+    SELECT
+      SUM(CASE WHEN s.capacity IS NULL OR cum_n <= s.capacity THEN player_slot ELSE 0 END)::int AS confirmed_players,
+      SUM(CASE WHEN s.capacity IS NULL OR cum_n <= s.capacity THEN guest_slots ELSE 0 END)::int AS confirmed_guests,
+      SUM(CASE WHEN s.capacity IS NOT NULL AND cum_n >  s.capacity THEN player_slot + guest_slots ELSE 0 END)::int AS waitlist_slots,
+      json_agg(player_name ORDER BY created_at) FILTER (WHERE s.capacity IS NULL OR cum_n <= s.capacity) AS player_names
+    FROM cum
+  ) slots ON true`;
 
 const clientIp = (c) => c.req.header("x-forwarded-for")?.split(",")[0].trim() || c.env?.incoming?.socket?.remoteAddress || "local";
 
@@ -230,13 +263,23 @@ app.get("/api/sessions", async (c) => {
 app.get("/api/sessions/:id/attendees", async (c) => {
   const id = Number(c.req.param("id"));
   const { rows } = await query(
-    `SELECT r.player_name, r.uses_multisport,
+    `WITH ordered AS (
+       SELECT r.id, r.player_name, r.uses_multisport, r.created_at,
+              1 + COALESCE((SELECT count(*)::int FROM guests g WHERE g.registration_id = r.id), 0) AS n
+         FROM registrations r WHERE r.session_id = $1
+     ),
+     cum AS (
+       SELECT o.*, SUM(n) OVER (ORDER BY created_at, id) AS cum_n FROM ordered o
+     )
+     SELECT c.id, c.player_name, c.uses_multisport,
+       CASE WHEN s.capacity IS NULL OR c.cum_n <= s.capacity THEN 'confirmed' ELSE 'waitlist' END AS queue_status,
        COALESCE((SELECT json_agg(json_build_object('name', g.name, 'multisport', g.uses_multisport) ORDER BY g.id)
-          FROM guests g WHERE g.registration_id = r.id), '[]'::json) AS guests
-     FROM registrations r WHERE r.session_id = $1 ORDER BY r.created_at`,
+          FROM guests g WHERE g.registration_id = c.id), '[]'::json) AS guests
+       FROM cum c JOIN sessions s ON s.id = $1
+       ORDER BY c.created_at`,
     [id],
   );
-  return c.json({ attendees: rows.map((r) => ({ name: r.player_name, multisport: r.uses_multisport, guests: r.guests })) });
+  return c.json({ attendees: rows.map((r) => ({ name: r.player_name, multisport: r.uses_multisport, queueStatus: r.queue_status, guests: r.guests })) });
 });
 
 const guestSchema = z.object({
@@ -335,16 +378,9 @@ app.post("/api/sessions/:id/join", async (c) => {
         )).rows[0];
         if (clash) return { status: 409, error: "A Multisport card in this booking is already registered for this session." };
       }
-      const counts = (await client.query(
-        `SELECT (SELECT count(*) FROM registrations WHERE session_id = $1) +
-                (SELECT count(*) FROM guests g JOIN registrations r ON r.id = g.registration_id WHERE r.session_id = $1) AS total`,
-        [id],
-      )).rows[0];
-      const spotsLeft = s.capacity - Number(counts.total);
-      const needed = 1 + data.guests.length;
-      if (needed > spotsLeft) {
-        return { status: 409, error: spotsLeft <= 0 ? "Sorry, this session is full." : `Only ${spotsLeft} spot${spotsLeft === 1 ? "" : "s"} left.` };
-      }
+      // No full-check: when the session is at capacity, the new booking lands on
+      // the waitlist. SESSION_STATS_SQL + the my-sessions query compute confirmed
+      // vs waitlist (and waitlist position) dynamically on read.
       const reg = (await client.query(
         `INSERT INTO registrations (session_id, player_id, player_name, uses_multisport, card_number, card_key, holder_name)
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
@@ -363,7 +399,7 @@ app.post("/api/sessions/:id/join", async (c) => {
             guest.usesMultisport ? guest.holderName : null],
         );
       }
-      return { ok: true };
+      return { ok: true, registrationId: reg.id };
     });
     if (result.error) return bad(c, result.error, result.status);
     if (persistCard) {
@@ -374,12 +410,46 @@ app.post("/api/sessions/:id/join", async (c) => {
       );
     }
     const session = (await query(`${SESSION_STATS_SQL} WHERE s.id = $1`, [id])).rows[0];
-    return c.json({ ok: true, session: mapSession(session) });
+    const mine = await registrationStatus(id, result.registrationId);
+    return c.json({ ok: true, session: mapSession(session), me: mine });
   } catch (e) {
     if (e.code === "23505") return bad(c, "You're already in this session.", 409);
     throw e;
   }
 });
+
+/**
+ * Compute a single registration's queue status (confirmed vs waitlist) and, if
+ * on the waitlist, the 1-based position among waitlisted bookings in FIFO order.
+ */
+async function registrationStatus(sessionId, registrationId) {
+  const { rows } = await query(
+    `WITH ordered AS (
+       SELECT r.id, r.created_at,
+              1 + COALESCE((SELECT count(*)::int FROM guests g WHERE g.registration_id = r.id), 0) AS n
+         FROM registrations r
+         WHERE r.session_id = $1
+     ),
+     cum AS (
+       SELECT id, n, created_at,
+              SUM(n) OVER (ORDER BY created_at, id) AS cum_n
+         FROM ordered
+     ),
+     waitlisted AS (
+       SELECT id, ROW_NUMBER() OVER (ORDER BY created_at, id) AS pos
+         FROM cum c, sessions s
+         WHERE s.id = $1 AND s.capacity IS NOT NULL AND c.cum_n > s.capacity
+     )
+     SELECT
+       (SELECT CASE WHEN s.capacity IS NULL OR c.cum_n <= s.capacity THEN 'confirmed' ELSE 'waitlist' END
+          FROM cum c, sessions s
+          WHERE s.id = $1 AND c.id = $2) AS status,
+       (SELECT pos FROM waitlisted WHERE id = $2) AS position`,
+    [sessionId, registrationId],
+  );
+  const row = rows[0] || {};
+  return { status: row.status || "confirmed", waitlistPosition: row.position ? Number(row.position) : null };
+}
 
 app.post("/api/sessions/:id/leave", async (c) => {
   const player = await currentPlayer(c);
@@ -410,10 +480,34 @@ app.get("/api/my-sessions", async (c) => {
      ORDER BY s.date, s.start_time`,
     [player.id],
   );
+  // Pull each of this player's registrations plus its queue status + waitlist
+  // position computed via the same FIFO cumulative-sum rule as SESSION_STATS_SQL.
   const mine = await query(
-    `SELECT r.session_id, r.uses_multisport, r.status,
+    `WITH ordered AS (
+       SELECT r.id, r.session_id, r.created_at,
+              1 + COALESCE((SELECT count(*)::int FROM guests g WHERE g.registration_id = r.id), 0) AS n
+         FROM registrations r
+         WHERE r.session_id IN (SELECT session_id FROM registrations WHERE player_id = $1)
+     ),
+     cum AS (
+       SELECT o.id, o.session_id, o.created_at, o.n,
+              SUM(o.n) OVER (PARTITION BY o.session_id ORDER BY o.created_at, o.id) AS cum_n
+         FROM ordered o
+     ),
+     labelled AS (
+       SELECT c.id, c.session_id,
+              CASE WHEN s.capacity IS NULL OR c.cum_n <= s.capacity THEN 'confirmed' ELSE 'waitlist' END AS queue_status,
+              CASE WHEN s.capacity IS NOT NULL AND c.cum_n >  s.capacity
+                   THEN ROW_NUMBER() OVER (PARTITION BY c.session_id, (CASE WHEN c.cum_n > s.capacity THEN 1 ELSE 0 END)
+                                           ORDER BY c.created_at, c.id)
+                   END AS waitlist_pos
+         FROM cum c JOIN sessions s ON s.id = c.session_id
+     )
+     SELECT r.session_id, r.uses_multisport, r.status, l.queue_status, l.waitlist_pos,
        COALESCE((SELECT json_agg(g.name ORDER BY g.id) FROM guests g WHERE g.registration_id = r.id), '[]'::json) AS guests
-     FROM registrations r WHERE r.player_id = $1`,
+       FROM registrations r
+       JOIN labelled l ON l.id = r.id
+       WHERE r.player_id = $1`,
     [player.id],
   );
   const bySession = new Map(mine.rows.map((r) => [r.session_id, r]));
@@ -428,6 +522,8 @@ app.get("/api/my-sessions", async (c) => {
         me: {
           multisport: me.uses_multisport,
           status: me.status,
+          queueStatus: me.queue_status,
+          waitlistPosition: me.waitlist_pos ? Number(me.waitlist_pos) : null,
           guests: me.guests,
           isMine: true,
           canLeave: beforeCutoff,
@@ -1014,14 +1110,37 @@ app.delete("/api/admin/sessions/:id", async (c) => {
 async function sessionDetail(id) {
   const session = (await query(`${SESSION_STATS_SQL} WHERE s.id = $1`, [id])).rows[0];
   if (!session) return null;
+  // Admin registration list: joined with FIFO queue status + waitlist position.
+  // Sorted so confirmed come first (alphabetical), waitlist after (FIFO order).
   const { rows } = await query(
-    `SELECT r.*, COALESCE((SELECT json_agg(json_build_object(
-        'id', g.id, 'name', g.name, 'status', g.status,
-        'multisport', g.uses_multisport, 'cardNumber', g.card_number, 'holderName', g.holder_name,
-        'paidMethod', g.paid_method
-      ) ORDER BY g.id)
-        FROM guests g WHERE g.registration_id = r.id), '[]'::json) AS guests
-     FROM registrations r WHERE r.session_id = $1 ORDER BY r.player_name`,
+    `WITH ordered AS (
+       SELECT r.id, r.created_at,
+              1 + COALESCE((SELECT count(*)::int FROM guests g WHERE g.registration_id = r.id), 0) AS n
+         FROM registrations r WHERE r.session_id = $1
+     ),
+     cum AS (
+       SELECT o.id, o.created_at, o.n,
+              SUM(o.n) OVER (ORDER BY o.created_at, o.id) AS cum_n
+         FROM ordered o
+     ),
+     labelled AS (
+       SELECT c.id, c.created_at,
+              CASE WHEN s.capacity IS NULL OR c.cum_n <= s.capacity THEN 'confirmed' ELSE 'waitlist' END AS queue_status,
+              CASE WHEN s.capacity IS NOT NULL AND c.cum_n > s.capacity
+                   THEN ROW_NUMBER() OVER (PARTITION BY (CASE WHEN c.cum_n > s.capacity THEN 1 ELSE 0 END) ORDER BY c.created_at, c.id)
+                   END AS waitlist_pos
+         FROM cum c JOIN sessions s ON s.id = $1
+     )
+     SELECT r.*, l.queue_status, l.waitlist_pos,
+       COALESCE((SELECT json_agg(json_build_object(
+         'id', g.id, 'name', g.name, 'status', g.status,
+         'multisport', g.uses_multisport, 'cardNumber', g.card_number, 'holderName', g.holder_name,
+         'paidMethod', g.paid_method
+       ) ORDER BY g.id)
+         FROM guests g WHERE g.registration_id = r.id), '[]'::json) AS guests
+       FROM registrations r JOIN labelled l ON l.id = r.id
+       WHERE r.session_id = $1
+       ORDER BY (l.queue_status = 'waitlist'), COALESCE(l.waitlist_pos, 0), lower(r.player_name)`,
     [id],
   );
   return {
@@ -1033,6 +1152,8 @@ async function sessionDetail(id) {
       cardNumber: r.card_number,
       holderName: r.holder_name,
       status: r.status,
+      queueStatus: r.queue_status,
+      waitlistPosition: r.waitlist_pos ? Number(r.waitlist_pos) : null,
       paidAt: r.paid_at,
       paidMethod: r.paid_method,
       guests: r.guests,
@@ -1076,6 +1197,15 @@ app.post("/api/admin/checkin/scan", async (c) => {
   }
   if (!match) return c.json({ result: "unknown", code: data.code });
   if (match.status === "paid") return c.json({ result: "already", name: match.name, kind: match.kind, id: match.id });
+  // Refuse to check in a card belonging to a waitlisted booking — the whole
+  // booking is either confirmed or not, so check status by its parent registration.
+  const regId = match.kind === "guest"
+    ? Number((await query(`SELECT registration_id AS id FROM guests WHERE id = $1`, [match.id])).rows[0]?.id)
+    : match.id;
+  const queue = await registrationStatus(data.sessionId, regId);
+  if (queue.status === "waitlist") {
+    return c.json({ result: "waitlist", name: match.name, kind: match.kind, id: match.id, position: queue.waitlistPosition });
+  }
   const table = match.kind === "guest" ? "guests" : "registrations";
   await query(`UPDATE ${table} SET status = 'paid', paid_at = now(), paid_method = 'scan' WHERE id = $1`, [match.id]);
   return c.json({ result: "paid", name: match.name, kind: match.kind, id: match.id });

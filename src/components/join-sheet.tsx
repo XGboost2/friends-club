@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Field, Spinner, Toggle } from "@/components/ui/field";
-import { api, type Session } from "@/lib/api";
+import { api, type QueueStatus, type Session } from "@/lib/api";
 import { usePlayer } from "@/lib/player";
 import { fmt } from "@/lib/utils";
 
@@ -22,7 +22,7 @@ function defaultGuestName(playerName: string, index: number) {
   return `${first}'s guest ${index + 1}`;
 }
 
-export function JoinSheet({ session, onClose, onJoined }: { session: Session | null; onClose: () => void; onJoined: (session: Session, guests: string[], multisport: boolean) => void }) {
+export function JoinSheet({ session, onClose, onJoined }: { session: Session | null; onClose: () => void; onJoined: (result: { session: Session; guests: string[]; multisport: boolean; queueStatus: QueueStatus; waitlistPosition: number | null }) => void }) {
   const { player } = usePlayer();
   const hasSavedCard = !!player?.multisportCardNumber && !!player?.multisportHolderName;
   const [multisport, setMultisport] = useState(false);
@@ -72,13 +72,19 @@ export function JoinSheet({ session, onClose, onJoined }: { session: Session | n
     }
     setBusy(true);
     try {
-      const res = await api<{ session: Session }>(`/api/sessions/${session.id}/join`, {
+      const res = await api<{ session: Session; me: { status: QueueStatus; waitlistPosition: number | null } }>(`/api/sessions/${session.id}/join`, {
         body: {
           usesMultisport: multisport,
           guests: cleanGuests,
         },
       });
-      onJoined(res.session, cleanGuests.map((g) => g.name), multisport);
+      onJoined({
+        session: res.session,
+        guests: cleanGuests.map((g) => g.name),
+        multisport,
+        queueStatus: res.me?.status ?? "confirmed",
+        waitlistPosition: res.me?.waitlistPosition ?? null,
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't join. Try again.");
     } finally {
@@ -105,6 +111,15 @@ export function JoinSheet({ session, onClose, onJoined }: { session: Session | n
             <p className="truncate text-xs text-muted-foreground">Signed in as {player.email}</p>
           </div>
         </div>
+
+        {spotsLeft < 1 + guests.length && (
+          <div className="rounded-2xl border border-amber/40 bg-amber/10 p-4 text-sm text-amber">
+            <p className="font-semibold">This session is full.</p>
+            <p className="mt-1 text-xs leading-relaxed">
+              You'll join the <strong>waitlist</strong> and get your spot automatically if someone cancels before the 25-hour lock.
+            </p>
+          </div>
+        )}
 
         <div className={`rounded-2xl border p-4 transition-colors ${multisport ? "border-primary/35 bg-primary/[.06]" : "border-border bg-soft"}`}>
           <div className="flex items-center justify-between gap-4">
@@ -206,7 +221,7 @@ export function JoinSheet({ session, onClose, onJoined }: { session: Session | n
         </div>
 
         <Button type="submit" variant="neon" size="lg" className="w-full" disabled={busy}>
-          {busy ? <Spinner /> : null} Confirm my spot
+          {busy ? <Spinner /> : null} {spotsLeft < 1 + guests.length ? "Join waitlist" : "Confirm my spot"}
         </Button>
       </form>
     </Sheet>

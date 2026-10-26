@@ -20,7 +20,7 @@ export default function Home() {
   const { openSignIn } = useClerk();
   const [today, setToday] = useState(() => isoDay(new Date()));
   const [sessions, setSessions] = useState<Session[] | null>(null);
-  const [mine, setMine] = useState<Set<number>>(new Set());
+  const [mine, setMine] = useState<Map<number, { queueStatus: "confirmed" | "waitlist"; waitlistPosition: number | null }>>(new Map());
   const [selected, setSelected] = useState<string | null>(null);
   const [joining, setJoining] = useState<Session | null>(null);
   const [pendingJoin, setPendingJoin] = useState<Session | null>(null);
@@ -36,7 +36,7 @@ export default function Home() {
       ]);
       setToday(all.today);
       setSessions(all.sessions);
-      setMine(new Set(my.sessions.map((s) => s.id)));
+      setMine(new Map(my.sessions.map((s) => [s.id, { queueStatus: s.me?.queueStatus ?? "confirmed", waitlistPosition: s.me?.waitlistPosition ?? null }])));
       setError(null);
       setSelected((cur) => cur ?? all.sessions.find((s) => s.status === "open")?.date ?? all.sessions[0]?.date ?? null);
     } catch (e) {
@@ -63,6 +63,7 @@ export default function Home() {
     for (const s of sessions ?? []) {
       const prev = map.get(s.date);
       map.set(s.date, { voted: (prev?.voted ?? false) || mine.has(s.id), count: (prev?.count ?? 0) + 1 });
+      // mine is a Map now; .has(id) still works
     }
     return map;
   }, [sessions, mine]);
@@ -174,7 +175,7 @@ export default function Home() {
               <AnimatePresence mode="wait">
                 <motion.div key={selected ?? "none"} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.23 }} className="space-y-4">
                   {chosen.length ? (
-                    chosen.map((s) => <SessionCard key={s.id} session={s} joined={mine.has(s.id)} onJoin={() => (player ? setJoining(s) : (setPendingJoin(s), openSignIn()))} onShowPlayers={() => setShowPlayers(s)} />)
+                    chosen.map((s) => <SessionCard key={s.id} session={s} mine={mine.get(s.id) ?? null} onJoin={() => (player ? setJoining(s) : (setPendingJoin(s), openSignIn()))} onShowPlayers={() => setShowPlayers(s)} />)
                   ) : (
                     <div className="glass-panel flex min-h-72 flex-col items-center justify-center rounded-2xl px-8 text-center">
                       <div className="mb-5 grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary">
@@ -203,10 +204,12 @@ export default function Home() {
       <JoinSheet
         session={joining}
         onClose={() => setJoining(null)}
-        onJoined={(session, guests, multisport) => {
+        onJoined={({ session, guests, multisport, queueStatus, waitlistPosition }) => {
           setJoining(null);
-          setConfirmation({ session, guests, multisport });
-          setMine((m) => new Set(m).add(session.id));
+          const next = new Map(mine);
+          next.set(session.id, { queueStatus, waitlistPosition });
+          setMine(next);
+          setConfirmation({ session, guests, multisport, queueStatus, waitlistPosition });
           setSessions((list) => list?.map((s) => (s.id === session.id ? session : s)) ?? list);
         }}
       />

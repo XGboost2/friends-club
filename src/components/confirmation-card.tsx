@@ -19,7 +19,7 @@ const lines = [
   "Tonight's forecast: 100% chance of smashes.",
 ];
 
-export type Confirmation = { session: Session; guests: string[]; multisport: boolean };
+export type Confirmation = { session: Session; guests: string[]; multisport: boolean; queueStatus: "confirmed" | "waitlist"; waitlistPosition: number | null };
 
 export function ConfirmationCard({ data, onClose }: { data: Confirmation | null; onClose: () => void }) {
   const navigate = useNavigate();
@@ -64,12 +64,14 @@ export function ConfirmationCard({ data, onClose }: { data: Confirmation | null;
               </motion.div>
             </motion.div>
             <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="relative mt-7 text-xs font-bold uppercase tracking-[.25em] text-primary">
-              You're on the list
+              {data.queueStatus === "waitlist" ? `Waitlist · position #${data.waitlistPosition ?? "?"}` : "You're on the list"}
             </motion.p>
             <motion.h2 id="confirm-title" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }} className="relative mt-3 font-display text-4xl font-bold leading-[1.05] sm:text-[2.6rem]">
-              Congratulations!!
-              <br />
-              <span className="text-glow text-primary">Tie up your shoes 👟</span>
+              {data.queueStatus === "waitlist" ? (
+                <>Fingers crossed!<br /><span className="text-glow text-primary">We'll bump you in 🤞</span></>
+              ) : (
+                <>Congratulations!!<br /><span className="text-glow text-primary">Tie up your shoes 👟</span></>
+              )}
             </motion.h2>
             <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="relative mx-auto mt-4 max-w-xs text-sm leading-relaxed text-muted-foreground">
               {line}

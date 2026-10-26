@@ -128,13 +128,20 @@ export default function MySessions() {
                       <p className="mt-1 text-xs text-muted-foreground">{fmt(s.date, "d MMMM yyyy")}</p>
                     </div>
                   </div>
-                  {s.me?.multisport ? (
-                    <span className={`flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${s.me.status === "paid" ? "bg-emerald/15 text-emerald" : "bg-primary/10 text-primary"}`}>
-                      <CreditCard size={11} /> {s.me.status === "paid" ? "Checked in" : "Multisport"}
-                    </span>
-                  ) : (
-                    <span className="shrink-0 rounded-full bg-soft px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Pay at venue</span>
-                  )}
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    {s.me?.queueStatus === "waitlist" && (
+                      <span className="rounded-full bg-amber/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber">
+                        Waitlist{s.me.waitlistPosition ? ` #${s.me.waitlistPosition}` : ""}
+                      </span>
+                    )}
+                    {s.me?.multisport ? (
+                      <span className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${s.me.status === "paid" ? "bg-emerald/15 text-emerald" : "bg-primary/10 text-primary"}`}>
+                        <CreditCard size={11} /> {s.me.status === "paid" ? "Checked in" : "Multisport"}
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-soft px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Pay at venue</span>
+                    )}
+                  </div>
                 </div>
                 <div className="mt-5 grid grid-cols-2 gap-4 border-t border-border pt-5 text-sm">
                   <Info icon={<Clock3 size={17} className="text-primary" />} label="Time" value={`${s.startTime}–${s.endTime}`} />
@@ -155,7 +162,7 @@ export default function MySessions() {
                       <span className="text-xs text-muted-foreground">Cancellation locks 25h before start</span>
                     )}
                     <Button variant="ghost" size="sm" onClick={() => setLeaving(s)} disabled={!s.me.canLeave}>
-                      Can't make it? Leave
+                      {s.me.queueStatus === "waitlist" ? "Leave waitlist" : "Can't make it? Leave"}
                     </Button>
                   </div>
                 )}

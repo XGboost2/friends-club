@@ -1,9 +1,9 @@
-import { Check, Clock3, Hourglass, Layers3, MapPin, MoveUpRight, Users, Lock, Zap } from "lucide-react";
+import { Check, Clock3, Hourglass, Layers3, ListOrdered, MapPin, MoveUpRight, Users, Lock, Zap } from "lucide-react";
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from "framer-motion";
 import type { MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/field";
-import type { Session } from "@/lib/api";
+import type { QueueStatus, Session } from "@/lib/api";
 import { courtsLabel, fmt } from "@/lib/utils";
 
 function reopenCountdown(iso: string | null) {
@@ -17,12 +17,14 @@ function reopenCountdown(iso: string | null) {
   return m === 0 ? `closes in ${h}h` : `closes in ${h}h ${m}m`;
 }
 
-export function SessionCard({ session, joined, onJoin, onShowPlayers }: { session: Session; joined: boolean; onJoin: () => void; onShowPlayers: () => void }) {
+export function SessionCard({ session, mine, onJoin, onShowPlayers }: { session: Session; mine: { queueStatus: QueueStatus; waitlistPosition: number | null } | null; onJoin: () => void; onShowPlayers: () => void }) {
   const reduced = useReducedMotion();
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const rotateX = useTransform(useSpring(y, { stiffness: 170, damping: 22 }), [-0.5, 0.5], [3, -3]);
   const rotateY = useTransform(useSpring(x, { stiffness: 170, damping: 22 }), [-0.5, 0.5], [-3, 3]);
+  const joined = !!mine;
+  const onWaitlist = mine?.queueStatus === "waitlist";
   const left = Math.max(0, session.capacity - session.total);
   const full = left === 0;
   const closed = session.status === "closed";
@@ -59,7 +61,11 @@ export function SessionCard({ session, joined, onJoin, onShowPlayers }: { sessio
           </div>
           <div className="min-w-0">
             <p className="font-display text-lg font-bold">{fmt(session.date, "EEEE")} rally</p>
-            {joined ? (
+            {joined && onWaitlist ? (
+              <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-amber/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber">
+                <ListOrdered size={11} /> Waitlist{mine?.waitlistPosition ? ` #${mine.waitlistPosition}` : ""}
+              </span>
+            ) : joined ? (
               <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-emerald/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald">
                 <Check size={11} strokeWidth={3} /> You're in
               </span>
@@ -130,6 +136,7 @@ export function SessionCard({ session, joined, onJoin, onShowPlayers }: { sessio
           </div>
           <span className="text-xs text-muted-foreground">
             <strong className="text-foreground">{session.total}</strong>/{session.capacity} going
+            {session.waitlistCount > 0 && <span className="ml-1.5 text-amber">+{session.waitlistCount} on waitlist</span>}
           </span>
         </button>
         {joined ? (
@@ -137,8 +144,8 @@ export function SessionCard({ session, joined, onJoin, onShowPlayers }: { sessio
             See who's in
           </Button>
         ) : (
-          <Button variant="neon" className="h-10 px-5" disabled={full || closed} onClick={onJoin}>
-            {full ? "Full" : closed ? "Closed" : "Join"} {!full && !closed && <MoveUpRight size={15} />}
+          <Button variant="neon" className="h-10 px-5" disabled={closed} onClick={onJoin}>
+            {closed ? "Closed" : full ? "Join waitlist" : "Join"} {!closed && <MoveUpRight size={15} />}
           </Button>
         )}
       </div>
